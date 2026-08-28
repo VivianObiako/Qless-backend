@@ -1,0 +1,21 @@
+# Render Blueprint for the Qless API.
+#
+# No database is declared here on purpose: Postgres lives on Neon, whose free
+# tier does not expire, while Render's own free Postgres is time-limited. That
+# makes DATABASE_URL an ordinary secret set in the dashboard rather than a
+# value Render wires up for us.
+services:
+  - type: web
+    name: qless-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      # Neon pooled connection string. Needs sslmode=require.
+      - key: DATABASE_URL
+        sync: false
+      # Comma-separated web origins: the Vercel production domain, plus any
+      # preview domain that should be able to reach this API.
+      - key: ALLOWED_ORIGIN
+        sync: false

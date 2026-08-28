@@ -1,0 +1,18 @@
+.git
+.github
+.gitignore
+
+# Never let a local environment file reach an image layer.
+.env
+.env.*
+
+# Documentation and local-only tooling are not part of the build.
+docs
+README.md
+Makefile
+docker-compose.yml
+scripts
+
+bin
+tmp
+.DS_Store

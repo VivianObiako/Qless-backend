@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    # The integration tests talk to a real Postgres rather than a fake, so CI
+    # has to provide one. Same major version as docker-compose.yml.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: qless
+          POSTGRES_PASSWORD: qless
+          POSTGRES_DB: qless
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qless -d qless"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      DATABASE_URL: postgres://qless:qless@localhost:5432/qless?sslmode=disable
+      TEST_DATABASE_URL: postgres://qless:qless@localhost:5432/qless_test?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # docker-compose.yml does this through an init script, which a service
+      # container does not run.
+      - name: Create the test database
+        run: psql -h localhost -U qless -d qless -c 'CREATE DATABASE qless_test OWNER qless;'
+        env:
+          PGPASSWORD: qless
+
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./... -count=1
+
+  image:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Render deploys this Dockerfile, so a break here is a break in
+      # production. Building it on every change catches that in the PR.
+      - run: docker build -t qless-api:ci .
