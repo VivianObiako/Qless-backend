@@ -1,0 +1,10 @@
+# Local environment
+.env
+.env.local
+
+# Build output
+/bin/
+/tmp/
+
+# macOS
+.DS_Store

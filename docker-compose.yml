@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: qless-db
+    environment:
+      POSTGRES_USER: qless
+      POSTGRES_PASSWORD: qless
+      POSTGRES_DB: qless
+    ports:
+      - "5433:5432"
+    volumes:
+      - qless-pgdata:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qless -d qless"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  qless-pgdata:
