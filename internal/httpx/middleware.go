@@ -68,13 +68,28 @@ func Logger(next http.Handler) http.Handler {
 	})
 }
 
+// OriginAllowed reports whether origin is one this API answers to. A "*"
+// anywhere in the list opens it to every origin, which is what the tests use.
+//
+// The WebSocket handshake asks the same question through this function rather
+// than repeating the rule, because a handshake is not covered by CORS and the
+// two checks drifting apart is how a queue ends up readable by another site.
+func OriginAllowed(allowed []string, origin string) bool {
+	for _, candidate := range allowed {
+		if candidate == "*" || candidate == origin {
+			return true
+		}
+	}
+	return false
+}
+
 // CORS allows the Next.js origin to call the API during development and in a
 // split deployment where web and API sit on different hosts.
-func CORS(allowedOrigin string) Middleware {
+func CORS(allowedOrigins ...string) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if origin != "" && (allowedOrigin == "*" || origin == allowedOrigin) {
+			if origin != "" && OriginAllowed(allowedOrigins, origin) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
@@ -106,4 +121,3 @@ func ClientIP(r *http.Request) string {
 	}
 	return host
 }
-

@@ -15,10 +15,10 @@ type healthResponse struct {
 // only by the handler they point at — each one calls requireOwner or
 // requireQueueAccess itself, so adding a route cannot accidentally skip the
 // check by missing a middleware.
-func (s *Server) Routes(allowedOrigin string) http.Handler {
-	// The upgrader is built here because only this call knows the web origin,
+func (s *Server) Routes(allowedOrigins ...string) http.Handler {
+	// The upgrader is built here because only this call knows the web origins,
 	// and a WebSocket handshake is not covered by the CORS middleware below.
-	s.sockets = realtime.NewUpgrader(s.hub, allowedOrigin)
+	s.sockets = realtime.NewUpgrader(s.hub, allowedOrigins...)
 
 	mux := http.NewServeMux()
 
@@ -73,7 +73,6 @@ func (s *Server) Routes(allowedOrigin string) http.Handler {
 	return httpx.Chain(mux,
 		httpx.Recoverer,
 		httpx.Logger,
-		httpx.CORS(allowedOrigin),
+		httpx.CORS(allowedOrigins...),
 	)
 }
-

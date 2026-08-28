@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/vivianobiako/qless/api/internal/httpx"
 )
 
 const (
@@ -73,10 +74,10 @@ type Upgrader struct {
 	upgrader websocket.Upgrader
 }
 
-// NewUpgrader restricts upgrades to the configured web origin. A WebSocket
+// NewUpgrader restricts upgrades to the configured web origins. A WebSocket
 // handshake is not subject to CORS, so this check is the only thing standing
 // between another site and a live feed of this queue.
-func NewUpgrader(hub *Hub, allowedOrigin string) *Upgrader {
+func NewUpgrader(hub *Hub, allowedOrigins ...string) *Upgrader {
 	return &Upgrader{
 		hub: hub,
 		upgrader: websocket.Upgrader{
@@ -87,7 +88,7 @@ func NewUpgrader(hub *Hub, allowedOrigin string) *Upgrader {
 				origin := r.Header.Get("Origin")
 				// No Origin means a non-browser client, which cannot be a
 				// third-party site acting with someone's cookies.
-				return origin == "" || allowedOrigin == "*" || origin == allowedOrigin
+				return origin == "" || httpx.OriginAllowed(allowedOrigins, origin)
 			},
 		},
 	}

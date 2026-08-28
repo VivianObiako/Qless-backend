@@ -47,7 +47,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.NewServer(store).Routes(cfg.AllowedOrigin),
+		Handler:           api.NewServer(store).Routes(cfg.AllowedOrigins...),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -56,7 +56,7 @@ func run() error {
 
 	errs := make(chan error, 1)
 	go func() {
-		slog.Info("qless api listening", "port", cfg.Port, "origin", cfg.AllowedOrigin)
+		slog.Info("qless api listening", "port", cfg.Port, "origins", cfg.AllowedOrigins)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}
@@ -73,4 +73,3 @@ func run() error {
 	defer cancel()
 	return server.Shutdown(shutdownCtx)
 }
-
