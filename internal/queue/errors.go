@@ -26,4 +26,3 @@ var (
 
 	ErrOperatorNotFound = errors.New("operator not found")
 )
-

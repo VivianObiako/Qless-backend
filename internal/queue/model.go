@@ -112,4 +112,3 @@ func (p PublicState) PeopleAhead(number int) int {
 	}
 	return ahead
 }
-

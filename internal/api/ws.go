@@ -62,4 +62,3 @@ func (s *Server) queueSocket(w http.ResponseWriter, r *http.Request) {
 		return event.FrameFor(audience)
 	})
 }
-

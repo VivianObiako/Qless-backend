@@ -266,4 +266,3 @@ func (s *Store) AuthorizeQueue(ctx context.Context, actor queue.Actor, queueID s
 	}
 	return nil
 }
-

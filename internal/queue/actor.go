@@ -25,4 +25,3 @@ type Actor struct {
 func (a Actor) IsOwner() bool {
 	return a.Type == PrincipalOwner
 }
-

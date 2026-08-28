@@ -387,4 +387,3 @@ func TestUnknownQueueReturnsFriendlyNotFound(t *testing.T) {
 		t.Errorf("message = %q, want something a customer can read", body.Message)
 	}
 }
-

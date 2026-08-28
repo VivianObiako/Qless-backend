@@ -113,4 +113,3 @@ func (h *Hub) Connections(queueID string) int {
 	defer h.mu.RUnlock()
 	return len(h.rooms[queueID])
 }
-

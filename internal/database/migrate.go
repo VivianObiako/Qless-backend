@@ -29,4 +29,3 @@ func Migrate(databaseURL string) error {
 	}
 	return nil
 }
-

@@ -79,4 +79,3 @@ func CodePrefix(raw string) string {
 	}
 	return normalized[:codeGroupSize]
 }
-

@@ -108,4 +108,3 @@ func (s *Server) publish(ctx context.Context, queueID string, eventType EventTyp
 	}
 	s.hub.Publish(queueID, event)
 }
-

@@ -101,4 +101,3 @@ func (s *Server) operatorView(
 	view.WaitingCount = len(view.Waiting)
 	return view, nil
 }
-

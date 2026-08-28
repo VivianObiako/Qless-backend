@@ -83,4 +83,3 @@ func formatDuration(minutes int) string {
 	}
 	return fmt.Sprintf("%dh %dm", hours, rem)
 }
-

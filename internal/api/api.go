@@ -183,4 +183,3 @@ func writeError(w http.ResponseWriter, err error) {
 func invalid(message string) error {
 	return fmt.Errorf("%w: %s", queue.ErrInvalidInput, message)
 }
-

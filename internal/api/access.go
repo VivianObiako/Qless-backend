@@ -252,4 +252,3 @@ func (s *Server) revokeOtherSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, revokeOthersResponse{Revoked: revoked})
 }
-

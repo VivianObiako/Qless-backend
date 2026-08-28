@@ -116,4 +116,3 @@ func (s *Store) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 	}
 	return tx.Commit(ctx)
 }
-

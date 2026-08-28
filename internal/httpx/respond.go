@@ -54,4 +54,3 @@ func DecodeJSON[T any](w http.ResponseWriter, r *http.Request, dst *T) error {
 	}
 	return nil
 }
-

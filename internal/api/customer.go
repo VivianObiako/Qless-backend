@@ -147,4 +147,3 @@ func (s *Server) leaveQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, view)
 }
-

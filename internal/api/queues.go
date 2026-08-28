@@ -164,4 +164,3 @@ func (s *Server) lookupEntry(r *http.Request, q queue.Queue) *queue.Entry {
 	}
 	return &entry
 }
-

@@ -341,4 +341,3 @@ func TestMyQueuesRequiresASession(t *testing.T) {
 		t.Errorf("status = %d, want 401; body %s", res.status, res.body)
 	}
 }
-

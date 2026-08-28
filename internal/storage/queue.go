@@ -229,4 +229,3 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 
 	return state, nil
 }
-
