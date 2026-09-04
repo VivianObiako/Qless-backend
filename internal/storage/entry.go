@@ -9,20 +9,45 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at`
+const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, presence, presence_at`
 
 func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var e queue.Entry
 	var status string
+	var presence *string
 	err := row.Scan(
 		&e.ID, &e.QueueID, &e.Number, &e.CustomerName, &status,
 		&e.JoinedAt, &e.StartedAt, &e.CompletedAt,
+		&presence, &e.PresenceAt,
 	)
 	if err != nil {
 		return queue.Entry{}, err
 	}
 	e.Status = queue.EntryStatus(status)
+	if presence != nil {
+		p := queue.Presence(*presence)
+		e.Presence = &p
+	}
 	return e, nil
+}
+
+// SetPresence records what the customer has said about where they are, on
+// their active entry. A customer with no active entry has nothing to say it
+// about, which is the same answer Leave gives.
+func (s *Store) SetPresence(ctx context.Context, queueID, customerTokenHash string, presence queue.Presence) (queue.Entry, error) {
+	entry, err := scanEntry(s.pool.QueryRow(ctx,
+		`UPDATE queue_entries SET presence = $3::entry_presence, presence_at = now()
+		 WHERE queue_id = $1 AND customer_token_hash = $2 AND status IN ('WAITING', 'SERVING')
+		 RETURNING `+entryColumns,
+		queueID, customerTokenHash, string(presence),
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return queue.Entry{}, queue.ErrNotInQueue
+	}
+	if err != nil {
+		return queue.Entry{}, fmt.Errorf("set presence: %w", err)
+	}
+	return entry, nil
 }
 
 // Join places a customer in the queue and hands back their number.
@@ -378,18 +403,24 @@ func (s *Store) History(ctx context.Context, queueID string, limit int) ([]queue
 		var (
 			entry        queue.Entry
 			status       string
+			presence     *string
 			actedByType  *string
 			operatorName *string
 		)
 		err := rows.Scan(
 			&entry.ID, &entry.QueueID, &entry.Number, &entry.CustomerName, &status,
 			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt,
+			&presence, &entry.PresenceAt,
 			&actedByType, &operatorName,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan history entry: %w", err)
 		}
 		entry.Status = queue.EntryStatus(status)
+		if presence != nil {
+			p := queue.Presence(*presence)
+			entry.Presence = &p
+		}
 
 		row := queue.HistoryEntry{Entry: entry}
 		// Absent on entries the customer ended themselves, and on everything

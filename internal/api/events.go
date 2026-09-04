@@ -26,6 +26,10 @@ const (
 	EventQueueResumed     EventType = "QUEUE_RESUMED"
 	EventQueueClosed      EventType = "QUEUE_CLOSED"
 	EventQueueReset       EventType = "QUEUE_RESET"
+
+	// A customer said where they are. Nothing about the public state changes,
+	// but the counter's rows do, and every frame is a full snapshot anyway.
+	EventCustomerPresence EventType = "CUSTOMER_PRESENCE"
 )
 
 // PublicEvent is what customer phones and display screens receive. It carries

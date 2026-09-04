@@ -147,3 +147,51 @@ func (s *Server) leaveQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, view)
 }
+
+type presenceRequest struct {
+	Presence string `json:"presence"`
+}
+
+// setPresence records what the customer has told the counter about where they
+// are: on the way, here, or needing a moment after being called. It goes on
+// their active entry and out to the dashboards on the next frame — and never
+// into the public state, which carries numbers only.
+func (s *Server) setPresence(w http.ResponseWriter, r *http.Request) {
+	q, ok := s.resolveQueue(w, r)
+	if !ok {
+		return
+	}
+
+	raw := strings.TrimSpace(r.Header.Get(httpx.CustomerTokenHeader))
+	if raw == "" {
+		writeError(w, queue.ErrNotInQueue)
+		return
+	}
+
+	var req presenceRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		writeError(w, invalid("We couldn't read that request."))
+		return
+	}
+
+	presence := queue.Presence(strings.ToUpper(strings.TrimSpace(req.Presence)))
+	if !presence.Valid() {
+		writeError(w, invalid("Say whether you're on the way, here, or need a moment."))
+		return
+	}
+
+	entry, err := s.store.SetPresence(r.Context(), q.ID, token.Hash(raw), presence)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	s.publish(r.Context(), q.ID, EventCustomerPresence)
+
+	view, err := s.customerView(r.Context(), q, &entry)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, view)
+}

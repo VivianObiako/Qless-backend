@@ -387,3 +387,80 @@ func TestUnknownQueueReturnsFriendlyNotFound(t *testing.T) {
 		t.Errorf("message = %q, want something a customer can read", body.Message)
 	}
 }
+
+// A customer can say where they are, the counter sees it, and the public
+// state never does: presence is about one person and rides on entries only.
+func TestCustomerPresenceReachesTheCounterButNotThePublic(t *testing.T) {
+	client := newTestClient(t)
+	created := client.createQueue("Presence Shop")
+	slug := created.Queue.Slug
+
+	joined, res := client.join(slug, "Ngozi", "")
+	if res.status != http.StatusCreated {
+		t.Fatalf("join: %d %s", res.status, res.body)
+	}
+
+	// Nobody has said anything yet.
+	var entries struct {
+		Waiting []struct {
+			Number   int     `json:"number"`
+			Presence *string `json:"presence"`
+		} `json:"waiting"`
+	}
+	res = client.do(http.MethodGet, "/api/queues/"+slug+"/entries", nil,
+		header{"Authorization", "Bearer " + created.OwnerToken})
+	if res.status != http.StatusOK {
+		t.Fatalf("entries: %d %s", res.status, res.body)
+	}
+	decode(t, res, &entries)
+	if len(entries.Waiting) != 1 || entries.Waiting[0].Presence != nil {
+		t.Fatalf("expected one silent waiting row, got %+v", entries.Waiting)
+	}
+
+	// Saying "here" lands on the entry and comes back on the customer's view.
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/presence",
+		mustJSON(t, map[string]string{"presence": "here"}),
+		header{httpx.CustomerTokenHeader, joined.CustomerToken})
+	if res.status != http.StatusOK {
+		t.Fatalf("set presence: %d %s", res.status, res.body)
+	}
+	var view struct {
+		Entry struct {
+			Presence *string `json:"presence"`
+		} `json:"entry"`
+	}
+	decode(t, res, &view)
+	if view.Entry.Presence == nil || *view.Entry.Presence != "HERE" {
+		t.Fatalf("expected HERE on the customer's entry, got %v", view.Entry.Presence)
+	}
+
+	// The counter sees it.
+	res = client.do(http.MethodGet, "/api/queues/"+slug+"/entries", nil,
+		header{"Authorization", "Bearer " + created.OwnerToken})
+	decode(t, res, &entries)
+	if entries.Waiting[0].Presence == nil || *entries.Waiting[0].Presence != "HERE" {
+		t.Fatalf("expected the counter to see HERE, got %v", entries.Waiting[0].Presence)
+	}
+
+	// The public state does not carry it, or anything else per person.
+	res = client.do(http.MethodGet, "/api/queues/"+slug, nil)
+	if res.status != http.StatusOK {
+		t.Fatalf("public state: %d %s", res.status, res.body)
+	}
+	if bytes.Contains(res.body, []byte(`"presence"`)) {
+		t.Fatalf("public state leaked presence: %s", res.body)
+	}
+
+	// Nonsense is refused, and so is a customer with no place in the queue.
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/presence",
+		mustJSON(t, map[string]string{"presence": "teleporting"}),
+		header{httpx.CustomerTokenHeader, joined.CustomerToken})
+	if res.status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unknown presence, got %d %s", res.status, res.body)
+	}
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/presence",
+		mustJSON(t, map[string]string{"presence": "here"}))
+	if res.status == http.StatusOK {
+		t.Fatalf("expected a customer with no token to be refused, got %d", res.status)
+	}
+}

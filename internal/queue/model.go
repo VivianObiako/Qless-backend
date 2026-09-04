@@ -49,6 +49,21 @@ type Queue struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// Presence is what a customer has told the counter about where they are.
+// It is about this visit, so it lives on the entry and a new number starts
+// with nothing said.
+type Presence string
+
+const (
+	PresenceOnTheWay Presence = "ON_THE_WAY"
+	PresenceHere     Presence = "HERE"
+	PresenceHold     Presence = "HOLD"
+)
+
+func (p Presence) Valid() bool {
+	return p == PresenceOnTheWay || p == PresenceHere || p == PresenceHold
+}
+
 type Entry struct {
 	ID           string      `json:"id"`
 	QueueID      string      `json:"queueId"`
@@ -58,6 +73,11 @@ type Entry struct {
 	JoinedAt     time.Time   `json:"joinedAt"`
 	StartedAt    *time.Time  `json:"startedAt"`
 	CompletedAt  *time.Time  `json:"completedAt"`
+
+	// Nil until the customer says something. Never on a public surface:
+	// PublicState carries numbers, and this rides on entries only.
+	Presence   *Presence  `json:"presence"`
+	PresenceAt *time.Time `json:"presenceAt"`
 }
 
 // Summary is the queue metadata safe to expose on public surfaces.

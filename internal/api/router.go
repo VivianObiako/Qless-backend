@@ -48,6 +48,7 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("POST /api/queues/{key}/join", s.joinQueue)
 	mux.HandleFunc("GET /api/queues/{key}/me", s.getMe)
 	mux.HandleFunc("POST /api/queues/{key}/leave", s.leaveQueue)
+	mux.HandleFunc("POST /api/queues/{key}/presence", s.setPresence)
 
 	// Realtime. Public by default; operator frames require ?k= on the
 	// handshake, verified in the handler.
