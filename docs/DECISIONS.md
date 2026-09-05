@@ -776,3 +776,11 @@ has anyone to finish implicitly. Calling a row while somebody is being
 served is disabled, with the reason on hover; calling a row while the called
 person has not turned up stands them down with their number held. Moving on
 from a no-show never writes "served" into their history.
+
+**A tablet is the counter's real home.** The Paper direction was drawn for a
+desktop and a phone; the shops that will run it hold an iPad. Controls grow
+under a coarse pointer rather than everywhere, so the desktop stays as
+drawn. Inputs read at 16px under a finger because iOS zooms into anything
+smaller, and nothing is said only on hover because a tablet has none. The
+counter's two columns follow the content's width, not the window's: a 12.9"
+iPad upright has the sidebar and not the room.

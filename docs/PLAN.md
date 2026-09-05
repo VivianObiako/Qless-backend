@@ -5,11 +5,11 @@ Judgment calls get written up in `DECISIONS.md` as they are made.
 
 ## Where things stand
 
-Phases 0–6 and 8 are done. Phase 9 (the edge drawer) was overtaken by the
-**Paper** redesign, which replaced the whole dashboard frame with a sidebar;
-see phase 10 below and `DECISIONS.md` "Direction — Paper". Phase 7
-(documentation) has been done piecemeal as screens changed; the remaining
-items are listed there.
+Phases 0–6, 8, 10, 11 and 12 are done. Phase 9 (the edge drawer) was
+overtaken by the **Paper** redesign, which replaced the whole dashboard frame
+with a sidebar; see phase 10 and `DECISIONS.md` "Direction — Paper". Phase 7
+(documentation) has been done piecemeal as screens changed. Of the original
+audit only multi-seat queues remains, in the backlog.
 
 Migrations run to **00009**: 00005 records a customer's presence on their
 entry, 00006 flags entries added at the counter as walk-ins, 00007 adds the
@@ -682,6 +682,31 @@ which stays in the backlog because it changes the socket contract.
       and history gains Arrived and Served columns plus an average service
       figure. The operator view carries `arrival`, the average time to turn
       up once called, which is what a hold time should be set against.
+
+### Phase 12 — the counter's stages, and iPads
+
+- [x] **12.1 One thing at a time.** The counter card offers only what its
+      stage allows: Serve next when the counter is empty; Start serving or
+      Skip and hold once somebody is called (Skip leads once the hold time
+      has run out); Done once they are being served, with the hold kept as a
+      quiet link. Serve next never has anyone to finish implicitly.
+- [x] **12.2 Standing down.** Calling anybody while somebody is at the
+      counter attends them if service had begun and skips-and-holds them if
+      not, so a no-show is never written into history as served. Call now on
+      the list and the recall list is disabled while somebody is being
+      served, with the reason on hover and in a line under the list.
+- [x] **12.3 Arrival on screen.** A fifth stat, "Arrive after call", and a
+      line under the hold-time field that says the same figure and warns when
+      the hold is shorter than it.
+- [x] **12.4 iPad pass.** Reviewed at 744, 820, 1024 and 1180 wide. Under a
+      coarse pointer, buttons grow to 44/40px, the finder, selects and sort
+      headers to touch size, and every input reads at 16px so iOS does not
+      zoom on focus; taps no longer wait for a double. The counter's two
+      columns follow the content width through a container query, so a
+      12.9-inch iPad held upright stacks them. The wall number is larger in
+      portrait, the sound and live controls head the board where the code
+      column stacks, and the chrome and board pad for the notch and home
+      indicator (`viewport-fit=cover`).
 
 ---
 
