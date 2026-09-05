@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vivianobiako/qless/api/internal/httpx"
+	"github.com/vivianobiako/qless/api/internal/push"
 	"github.com/vivianobiako/qless/api/internal/queue"
 	"github.com/vivianobiako/qless/api/internal/realtime"
 	"github.com/vivianobiako/qless/api/internal/storage"
@@ -31,6 +32,10 @@ type Server struct {
 	redeemLimiter *httpx.Limiter
 	codeLimiter   *httpx.Limiter
 	redeemLockout *httpx.Lockout
+
+	// Nil-safe: a server without push configured answers that it has none.
+	push      *push.Sender
+	webOrigin string
 }
 
 func NewServer(store *storage.Store) *Server {
@@ -158,6 +163,8 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "operator_not_found", "We couldn't find that operator.")
 	case errors.Is(err, queue.ErrEntryNotActive):
 		httpx.WriteError(w, http.StatusConflict, "entry_not_active", "That customer has already been dealt with.")
+	case errors.Is(err, queue.ErrRecallExpired):
+		httpx.WriteError(w, http.StatusConflict, "recall_expired", "It's been too long since they were skipped. They can rejoin for a new number.")
 	case errors.Is(err, queue.ErrNotInQueue):
 		httpx.WriteError(w, http.StatusNotFound, "not_in_queue", "Your previous queue position is no longer active.")
 	case errors.Is(err, queue.ErrQueuePaused):

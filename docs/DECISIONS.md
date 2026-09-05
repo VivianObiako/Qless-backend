@@ -644,3 +644,143 @@ as "by you" for everybody — so staff saw their manager's work credited to
 themselves. It now reads "by the owner" unless the owner is the one reading. The
 underlying data was right; the sentence was not.
 
+## Direction — "Paper"
+
+The Ticket Pass direction was replaced in September 2026 by **Paper**: black on
+white, one family (Geist) at two weights, hairlines instead of cards, and one
+colour with one meaning. The mockups that led here live outside the
+repository; the reasoning is recorded here.
+
+**Light first.** The counter is a working screen under shop lighting, so it
+opens light. Dark is a preference, and "system" follows the device. The bare
+`:root` is the light set and `[data-theme="dark"]` the inversion.
+
+**One family, two weights.** Geist for everything that names, counts, is read
+or is pressed; Geist Mono only for codes and slugs, which are transcribed.
+Nothing is heavier than 500: hierarchy comes from size and colour, and weight
+reads heavier as size grows. The uppercase tracked label voice is gone.
+
+**Colour means one thing.** Status is a dot and a word: solid is open, hollow
+is paused, grey is closed. Vermilion means a person being called, on both
+sides of the counter — the customer's turn screen and the number at the
+counter — and landing step 05. It appears nowhere else.
+
+**The ticket keeps its edge.** Its stock is now the page colour, so a hairline
+and the notches are what make it a ticket. The notches sit a pixel over the
+edge and carry the hairline around their curve only, so the tear reads as a
+cut. The mark is the same object: a stub with a Q punched through it, one
+path, one colour, on any ground.
+
+**Navigation answers three questions, top to bottom.** Which queue (the
+switcher), what am I doing (Counter, History, Share, Settings), who am I (the
+personal menu: Team, appearance, sign out). "Your business" is gone: it put a
+list of places next to a list of people under a label that named neither.
+Share is a screen because "turn the tablet round so they can scan it" is a
+real thing that happens at a counter. Below 1024px the sidebar is a bar and
+the four screens are tabs.
+
+**The landing reel stays.** It is the most crafted motion in the product. It
+was retuned to the new type and now follows the hero ticket's size, so the
+card that flies in is the one that lands; it plays once per tab.
+
+**Presence is a flow, not switches.** Each state of the pass offers only what
+moves things forward: on my way, then here; or, when called, here with a
+two-minute hold beneath it. Once "here" is said nothing else is asked. It is
+recorded on the entry by the API so it is the same on every device and the
+counter sees it as a tag.
+
+**The counter and the wall display keep the screen awake.** A tablet that dims
+to black is a blank counter, and a display that sleeps is a blank wall. Both
+can be added to a home screen through a manifest.
+
+**A skip is a pause, not an ending.** The old skip finished the entry, so a
+customer who stepped out for two minutes had to rejoin at the back. Now a
+skipped entry keeps its number for 30 minutes and sits under "Skipped
+recently" on the counter with one tap to call it back. The window exists
+because the number is reissued once the entry is out of it — the
+`one_active_entry_per_number` index is what makes recall safe, and what
+refuses it afterwards as `recall_expired`. Thirty minutes is longer than any
+"I'll be right back" and shorter than a reissued number is likely to matter.
+
+**Walk-ins are entries.** A person at the counter with no phone gets a number
+from "Add a person" and joins the back of the line like everyone else, with a
+`walkIn` flag so the row can say so. They cannot be told when it is their
+turn, which is why the counter shows the tag: staff call them by voice.
+
+**History is a table.** The grouped list hid the two things staff actually
+look for: a name, and who served them. It is now one full-width table with
+served-by as its own column, sortable on number, name and time, filterable by
+day, outcome and server, 25 rows a page, and exportable as CSV. The summary
+figures above it describe what is in view, so a filter is also a report.
+
+**A second queue is a dialog.** The full page at `/create` is for a visitor
+with nothing yet. An owner adding a queue from the switcher or the queues
+list is one form away from running it, so the form comes to them and lands on
+the new queue's counter. No recovery code is shown there: this browser already
+holds a session, and codes are only issued when a business is created.
+
+**Hold time is one number with three jobs.** The audit asked for a no-show
+nudge on the counter and the product had a fixed recall window; the owner
+asked whether the wait after a call should be a business decision. It is,
+and it is one setting rather than two: how long a called person's place is
+held. The counter suggests a skip after it, a skipped number can be called
+back within it, and the pass prints it. Two numbers would be more precise
+and nobody would set them differently; one number is a promise a shop can
+say out loud. Zero means no hold, and then a skip is final.
+
+**Estimates learn from the day.** The typed service time is a starting
+guess. Once there are five real start-to-finish times in the last twelve
+hours the estimate uses the average of the last ten, and settings says so
+beside the box. Only entries that were called and then finished count: a
+person marked as served straight from the list never had a service time.
+
+**A pause can say when.** "Back at 2:30" is one optional line, shown wherever
+the pause is, and cleared by the resume so it never outlives the break.
+
+**Archive, not delete.** History is the one thing this product never
+destroys, so the nearest thing to deleting a queue is putting it away: it
+closes, leaves the list, refuses joins and refuses to reopen until it is
+restored. The print sheet on the door stops working, which is the point.
+
+**An owner may have a name.** Optional, given at create or from the personal
+menu, seen only by them and on history rows they handled. It is not an
+account; nothing about access changes.
+
+**A new day is a question, not a reset.** The dashboard asks once, when it
+is opened after twelve idle hours with a number to reset. Clearing a queue
+is a business decision and stays behind a confirm.
+
+**The wall chimes when asked.** Two synthesised notes when the serving number
+changes, armed by a tap because browsers require one, remembered per device
+because a wall screen is set up once.
+
+**The nudge leaves the tab.** With push configured the server sends the three
+rungs and the pass goes quiet; the in-page notification stays for browsers
+and deployments where push is not on offer. Each phone is told each rung
+once, and a frame that moved nobody sends nothing, so a busy counter does
+not become a busy pocket.
+
+**The call and the service are two moments.** Measuring service from the
+call counted the walk back from the coffee shop, so the estimate drifted
+high on a slow-arriving crowd. `served_at` is set when the person is
+actually there: inferred when someone already marked here is called, when
+they say here at the counter, or when a skipped number is recalled, and by
+one tap otherwise. Nothing asks staff to think about it in the common case.
+The gap between the two moments, how long people take to turn up, is a
+number a shop has never had and the right one to set a hold time against.
+
+**One thing at a time at the counter.** The card offers only what its stage
+allows: Serve next when the counter is empty, Start serving or Skip and hold
+once somebody is called, Done once they are being served. Serve next never
+has anyone to finish implicitly. Calling a row while somebody is being
+served is disabled, with the reason on hover; calling a row while the called
+person has not turned up stands them down with their number held. Moving on
+from a no-show never writes "served" into their history.
+
+**A tablet is the counter's real home.** The Paper direction was drawn for a
+desktop and a phone; the shops that will run it hold an iPad. Controls grow
+under a coarse pointer rather than everywhere, so the desktop stays as
+drawn. Inputs read at 16px under a finger because iOS zooms into anything
+smaller, and nothing is said only on hover because a tablet has none. The
+counter's two columns follow the content's width, not the window's: a 12.9"
+iPad upright has the sidebar and not the room.

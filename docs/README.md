@@ -23,17 +23,20 @@ All four milestones are complete, and the work has continued past them.
 
 Beyond the brief: one anonymous **owner** can hold several queues and delegate
 the counter to named **operators** without handing over the business, customer
-names are a per-queue setting that operators see only if the queue says so, and
-the dashboard's screens share a left-edge drawer rather than a row of tabs.
+names are a per-queue setting that operators see only if the queue says so,
+customers tell the counter they are on their way or here, staff can add a
+walk-in and recall a skipped number within the queue's hold time, the nudges
+go out as push notifications, estimates learn from real service times, and
+the dashboard's screens share a sidebar rather than a row of tabs.
 
 [PLAN.md](PLAN.md) is the source of truth for what has been built, phase by
 phase, and carries the backlog — multi-seat queues, services, archiving a queue.
 [DECISIONS.md](DECISIONS.md) has the reasoning behind every judgment call.
 
-The UI follows the "Ticket Pass" direction in `design_handoff_qless_ui/` — a
-physical ticket in Instrument Serif numerals on a near-black shell, where
-getting closer to your turn inverts the screen rather than colouring it.
-Vermilion appears on exactly two surfaces in the whole product.
+The UI follows the **Paper** direction: black on white, Geist at two weights,
+hairlines instead of cards, and a ticket whose notches carry the only curve.
+Vermilion means one thing — a person being called — on the customer's turn
+screen, at the counter and on the landing page's last step.
 
 See [PROMPT.md](PROMPT.md) for the full specification.
 

@@ -33,6 +33,7 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("POST /api/access/recovery-code/acknowledge", s.acknowledgeRecoveryCode)
 	mux.HandleFunc("GET /api/me/queues", s.myQueues)
 	mux.HandleFunc("POST /api/sessions/revoke-others", s.revokeOtherSessions)
+	mux.HandleFunc("PATCH /api/me", s.updateMe)
 
 	// The roster. Owner only, and scoped to the business rather than to any one
 	// queue — an operator can cover several.
@@ -48,6 +49,10 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("POST /api/queues/{key}/join", s.joinQueue)
 	mux.HandleFunc("GET /api/queues/{key}/me", s.getMe)
 	mux.HandleFunc("POST /api/queues/{key}/leave", s.leaveQueue)
+	mux.HandleFunc("POST /api/queues/{key}/presence", s.setPresence)
+	mux.HandleFunc("GET /api/push/key", s.pushKey)
+	mux.HandleFunc("POST /api/queues/{key}/push", s.subscribePush)
+	mux.HandleFunc("DELETE /api/queues/{key}/push", s.unsubscribePush)
 
 	// Realtime. Public by default; operator frames require ?k= on the
 	// handshake, verified in the handler.
@@ -61,14 +66,18 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("PATCH /api/queues/{key}", s.updateQueue)
 
 	mux.HandleFunc("POST /api/queues/{key}/next", s.serveNext)
+	mux.HandleFunc("POST /api/queues/{key}/entries", s.addWalkIn)
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/serve", s.serveEntry)
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/attend", s.attendEntry)
+	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/start", s.startEntry)
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/skip", s.skipEntry)
 
 	mux.HandleFunc("POST /api/queues/{key}/pause", s.pauseQueue)
 	mux.HandleFunc("POST /api/queues/{key}/resume", s.resumeQueue)
 	mux.HandleFunc("POST /api/queues/{key}/close", s.closeQueue)
 	mux.HandleFunc("POST /api/queues/{key}/reset", s.resetQueue)
+	mux.HandleFunc("POST /api/queues/{key}/archive", s.archiveQueue)
+	mux.HandleFunc("POST /api/queues/{key}/unarchive", s.unarchiveQueue)
 
 	return httpx.Chain(mux,
 		httpx.Recoverer,

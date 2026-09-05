@@ -5,9 +5,16 @@ Judgment calls get written up in `DECISIONS.md` as they are made.
 
 ## Where things stand
 
-Phases 0–6 are done and verified. Phase 7 (documentation) is next. Migrations
-run to **00004** and phase 6 needed no server-side change at all — the display
-board runs on the public socket that milestone 2 already built.
+Phases 0–6, 8, 10, 11 and 12 are done. Phase 9 (the edge drawer) was
+overtaken by the **Paper** redesign, which replaced the whole dashboard frame
+with a sidebar; see phase 10 and `DECISIONS.md` "Direction — Paper". Phase 7
+(documentation) has been done piecemeal as screens changed. Of the original
+audit only multi-seat queues remains, in the backlog.
+
+Migrations run to **00009**: 00005 records a customer's presence on their
+entry, 00006 flags entries added at the counter as walk-ins, 00007 adds the
+business settings (hold time, pause note, archiving, owner name), 00008
+holds push subscriptions and 00009 records when service actually began.
 
 The names toggle is live end to end: default off, settable per queue, and it
 changes what staff receive on the dashboard, in history and over the socket —
@@ -18,16 +25,22 @@ closed by 2.5. Owners created before that screen existed still have no code they
 have ever seen; their bookmarked dashboard link is their way back in, and
 redeeming is the only way to mint them a fresh one.
 
-Running the stack locally:
+Running the stack locally (two repositories side by side):
 
-- Postgres: `docker compose up -d db` — container `qless-db`, host port **5433**.
-- API: already listening on **:8080** (`/healthz` returns 200).
-- Web: `npm run dev --prefix web` on **:3000**. Check whether one is already
+- Postgres: `docker compose up -d db` in `Qless-backend` — container `qless-db`,
+  host port **5433**.
+- API: `go run ./cmd/server` in `Qless-backend` on **:8080**, with
+  `ALLOWED_ORIGIN` naming the web app's origin — CORS and the socket handshake
+  both check it.
+- Web: `npm run dev` in `Qless` on **:3000**. Check whether one is already
   running before starting another — two `next dev` processes share `.next` and
   will fight over the build cache.
-- Checks: `npx tsc --noEmit` and `npx eslint`, both run from `web/`.
-- This directory is **not** a git repository, so there is nothing to commit and
-  no branch to cut.
+- Checks: `npx tsc --noEmit` and `npx eslint` in `Qless`; `go test ./...` in
+  `Qless-backend`.
+- Branches at the time of writing: web `redesign/paper`, API
+  `feature/presence`.
+- Push is optional locally: `go run ./cmd/vapid` prints a key pair for the
+  API's `.env`; without one the pass keeps its in-page nudge.
 
 ---
 
@@ -540,7 +553,9 @@ flagged as such: they are gaps to close in code, not sentences to rewrite.
 
 ### Phase 9 — the edge drawer
 
-Supersedes 8.1's tab row. Phase 8 was not wasted: it created `DashboardChrome`
+**Superseded by phase 10.** The drawer was never built; the Paper redesign
+answered the same two problems with a pinned sidebar and a queue switcher
+popover. Kept for the reasoning. Supersedes 8.1's tab row. Phase 8 was not wasted: it created `DashboardChrome`
 as the one place all dashboard screens get their frame, and this replaces the
 band inside that component instead of touching five screens.
 
@@ -578,6 +593,129 @@ asked to hold ten.
       phase exists to fix, and the Queues page now does its job. It costs an
       owner with two queues one extra step to switch; if that bites, the answer
       is a recent-queues line in the drawer, not the pills back.
+
+---
+
+### Phase 10 — Paper
+
+The redesign, on web branch `redesign/paper` and API branch
+`feature/presence`. Six steps, each verified against the live API before the
+next began.
+
+- [x] **10.1 Tokens and type.** Light-first `:root`, `[data-theme="dark"]`
+      inversion, "system" preference resolved before paint. Geist and Geist
+      Mono via `next/font`; nothing heavier than 500.
+- [x] **10.2 Primitives.** Pill buttons, 44px fields with a halo focus, the
+      ticket with hairline notches, the mark (a stub tile with a Q punched
+      out), theme toggle, notices, dialogs.
+- [x] **10.3 Navigation.** `DashboardChrome` becomes a sidebar answering
+      three questions top to bottom: which queue (switcher), what am I doing
+      (Counter, History, Share, Settings), who am I (personal menu). The
+      content column is centred at 1680px; the top row holds the finder and the
+      live/status dots. `/queues` and `/operators` share the chrome.
+- [x] **10.4 Counter, settings, history.** The counter puts the number being
+      called in vermilion with presence beside it; rows carry "Call now" and a
+      per-row menu. Settings is two columns with a switch. History is a
+      full-width table — sortable by number, name and time, filterable by day,
+      outcome and who served, paginated at 25, exportable as CSV.
+- [x] **10.5 Customer pass, join, create, enter.** Presence is a flow: on my
+      way, then here; when called, here or a two-minute hold. Recorded on the
+      entry by the API (00005) and shown to the counter as a tag.
+- [x] **10.6 Landing, display, print, wake lock, manifest.** The reel and the
+      hero ticket stay. The display board is retuned with a larger QR column;
+      the counter and the board hold a wake lock.
+- [x] **10.7 Follow-ups from the first review.** Walk-ins (`POST
+      /api/queues/{key}/entries`, 00006) for a person with no phone. Skipping
+      keeps the number and lists it under "Skipped recently" with one-tap
+      recall; after the window the call is refused with `recall_expired`.
+      Creating a queue from the dashboard or the queues list happens in a
+      dialog. History fetches up to 1000 rows.
+
+### Phase 11 — the rest of the audit
+
+Everything the product review listed as missing, except multi-seat queues,
+which stays in the backlog because it changes the socket contract.
+
+- [x] **11.1 Hold time** (00007 `hold_minutes`, default 10, 0–120). One
+      business setting with three jobs: the counter suggests a skip once a
+      called person has been silent that long (a two-minute request from the
+      pass adds two), a skipped number is recallable for that long, and the
+      pass tells the customer the figure. Zero makes a skip final and hides
+      the recall list. Replaces the fixed 30-minute window.
+- [x] **11.2 Pause with a note** (`pause_note`). `POST …/pause` takes an
+      optional `{note}`; it shows on the counter's status line, the join
+      page, and the wall, and clears on resume.
+- [x] **11.3 Archive a queue** (`archived_at`, `POST …/archive|unarchive`,
+      owner). Archiving closes the queue, hides it from `/api/me/queues` and
+      refuses joins and reopening; history stays and the queues page lists it
+      under "Archived" with Restore. Settings has the action.
+- [x] **11.4 Live queues list.** `/api/me/queues` returns cards with
+      `servingNumber` and `waitingCount`, plus `archived` and the owner's
+      `displayName`.
+- [x] **11.5 Owner display name** (`owners.display_name`, `PATCH /api/me`,
+      `ownerName` on create). The personal menu shows it and offers the
+      dialog; history carries `ownerName` so staff see a name instead of
+      "the owner".
+- [x] **11.6 Live estimate.** `MeasuredService` averages the last ten real
+      start-to-finish times from the past twelve hours; once there are five
+      the public state's `serviceMinutes` and every estimate use it. The
+      operator view carries `measured` and settings says which figure is in
+      use.
+- [x] **11.7 New-day prompt.** The operator view carries `lastActivityAt`;
+      an owner opening an idle dashboard twelve hours later is asked whether
+      to start again at 1. Dismissable per session; never automatic.
+- [x] **11.8 Chime on the wall.** Two synthesised notes when the serving
+      number changes, armed by a tap on the board and remembered per device.
+- [x] **11.9 Full queue.** The join page says it updates on its own and the
+      button returns when a place frees.
+- [x] **11.10 Push notifications** (00008, `GET /api/push/key`,
+      `POST|DELETE /api/queues/{key}/push`). A service worker at `/sw.js`, a
+      subscription taken when the pass's opt-in is granted, and the server
+      sending each rung of the ladder once per phone after every frame.
+      Optional per deployment: VAPID keys from `go run ./cmd/vapid`.
+- [x] **11.11 When service actually begins** (00009 `served_at`). The call
+      and the service are different moments, and the gap is the customer
+      walking back. `served_at` is inferred — already "here" when called,
+      "here" said at the counter, recalled from a skip — or set by one tap
+      (`POST …/entries/{id}/start`). The measured estimate runs from it, the
+      counter shows "Serving for" once it is set and the overdue nudge stops,
+      and history gains Arrived and Served columns plus an average service
+      figure. The operator view carries `arrival`, the average time to turn
+      up once called, which is what a hold time should be set against.
+
+### Phase 12 — the counter's stages, and iPads
+
+- [x] **12.1 One thing at a time.** The counter card offers only what its
+      stage allows: Serve next when the counter is empty; Start serving or
+      Skip and hold once somebody is called (Skip leads once the hold time
+      has run out); Done once they are being served, with the hold kept as a
+      quiet link. Serve next never has anyone to finish implicitly.
+- [x] **12.2 Standing down.** Calling anybody while somebody is at the
+      counter attends them if service had begun and skips-and-holds them if
+      not, so a no-show is never written into history as served. Call now on
+      the list and the recall list is disabled while somebody is being
+      served, with the reason on hover and in a line under the list.
+- [x] **12.3 Arrival on screen.** A fifth stat, "Arrive after call", and a
+      line under the hold-time field that says the same figure and warns when
+      the hold is shorter than it.
+- [x] **12.4 iPad pass.** Reviewed at 744, 820, 1024 and 1180 wide. Under a
+      coarse pointer, buttons grow to 44/40px, the finder, selects and sort
+      headers to touch size, and every input reads at 16px so iOS does not
+      zoom on focus; taps no longer wait for a double. The counter's two
+      columns follow the content width through a container query, so a
+      12.9-inch iPad held upright stacks them. The wall number is larger in
+      portrait, the sound and live controls head the board where the code
+      column stacks, and the chrome and board pad for the notch and home
+      indicator (`viewport-fit=cover`).
+- [x] **12.5 History as a working record.** Search by name or exact number,
+      a Walk-ins entry in the outcome filter, and real pagination: ten rows a
+      page by default with 25, 50 and 100 on offer, first / previous / next /
+      last and the page count between. On a desktop the search leads the
+      filter row with the filters at the right; on a tablet it takes a line
+      of its own under the title.
+- [x] **12.6 The counter's finder is parked.** Not rendered for now — a
+      counter of a dozen people does not need one — and kept wired for the
+      day a queue is long enough to.
 
 ---
 

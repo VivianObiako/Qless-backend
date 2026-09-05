@@ -176,6 +176,8 @@ POST   /api/access/redeem                       code → role, session, queues
 POST   /api/access/recovery-code/acknowledge    settle a staged code   [owner]
 GET    /api/me/queues                           who am I, what can I open
 POST   /api/sessions/revoke-others              sign out my other devices [owner]
+PATCH  /api/me                                  my display name        [owner]
+GET    /api/push/key                            VAPID public key, 404 when push is off
 
 GET    /api/operators                                                  [owner]
 POST   /api/operators                           create, returns code once [owner]
@@ -187,14 +189,20 @@ POST   /api/queues                              create (recovery code once)
 GET    /api/queues/{key}                        public queue state
 PATCH  /api/queues/{key}                        config                 [owner]
 POST   /api/queues/{key}/close|reset                                   [owner]
-POST   /api/queues/{key}/pause|resume                                  [access]
+POST   /api/queues/{key}/archive|unarchive                             [owner]
+POST   /api/queues/{key}/pause                  optional {note}        [access]
+POST   /api/queues/{key}/resume                                        [access]
 POST   /api/queues/{key}/next                   serve next             [access]
-POST   /api/queues/{key}/entries/{entryId}/serve|attend|skip           [access]
+POST   /api/queues/{key}/entries                add a walk-in          [access]
+POST   /api/queues/{key}/entries/{entryId}/serve|attend|skip|start     [access]
 GET    /api/queues/{key}/entries                the dashboard's own view [access]
-GET    /api/queues/{key}/history                                       [access]
+GET    /api/queues/{key}/history                ?limit= up to 1000, default 200 [access]
 
 POST   /api/queues/{key}/join                   join
 GET    /api/queues/{key}/me                     my active entry (customer token)
+POST   /api/queues/{key}/presence               on my way / here / hold (customer token)
+POST   /api/queues/{key}/push                   bind a push subscription (customer token)
+DELETE /api/queues/{key}/push                   forget an endpoint
 POST   /api/queues/{key}/leave                  leave
 
 GET    /api/queues/{key}/ws                     realtime
@@ -204,7 +212,32 @@ Each handler calls `requireOwner` or `requireQueueAccess` itself. There is
 deliberately no middleware, so a new route cannot silently skip the check by
 forgetting to be wrapped in one.
 
-**Events:** `QUEUE_UPDATED · CUSTOMER_JOINED · CUSTOMER_LEFT · CUSTOMER_SKIPPED · CUSTOMER_SERVED · CUSTOMER_ATTENDED · QUEUE_PAUSED · QUEUE_RESUMED · QUEUE_CLOSED · QUEUE_RESET`
+**Events:** `QUEUE_UPDATED · CUSTOMER_JOINED · CUSTOMER_LEFT · CUSTOMER_SKIPPED · CUSTOMER_SERVED · CUSTOMER_ATTENDED · CUSTOMER_PRESENCE · QUEUE_PAUSED · QUEUE_RESUMED · QUEUE_CLOSED · QUEUE_RESET`
+
+**Standing down.** Calling anybody while somebody is at the counter stands
+that person down: attended if their service had begun (`servedAt` set),
+skipped and held if it had not.
+
+**Skip is not final.** A skipped entry keeps its number for the queue's
+`holdMinutes` and can be served (recalled) in that window. After it the number
+may have been reissued, and the call is refused with `recall_expired` (409).
+The dashboard view lists the entries still inside the window as `skipped`.
+A hold time of zero makes a skip final.
+
+**Estimates learn.** `averageServiceMinutes` is the starting figure. Once the
+last twelve hours hold five real service times, every estimate uses the
+average of the last ten, and the public state says which figure it used in
+`serviceMinutes`. A service time runs from `servedAt` — when the person was
+actually at the counter — to done, falling back to the call for an entry
+nobody marked. `servedAt` is inferred from presence and recall, or set by
+`start`.
+
+**Push.** With VAPID keys configured, the server sends each subscribed phone
+the three nudges — close, next, your turn — once per rung, after the frame.
+Without keys the key endpoint answers 404 and the pass nudges from the page.
+
+**Walk-ins.** Staff can add a person who has no phone; the entry is flagged
+`walkIn`, joins the back of the line and is served like any other.
 
 **Payloads are scoped by audience — this is a privacy requirement, not a nicety.**
 
@@ -236,15 +269,17 @@ Never leak raw backend errors to the UI.
 /q/[slug]                customer: join + live status (one page, four states)
 /dashboard/[id]          the counter
 /dashboard/[id]/history  history
+/dashboard/[id]/share    link, QR, print sheet, display, customer view
 /dashboard/[id]/settings config                                    [owner]
 /display/[slug]          public display
 /print/[slug]            printable QR sheet
 ```
 
 `/create` and `/enter` are the two ways in, and both are screens rather than
-links. Everything from `/queues` inwards shares one frame: a header naming the
-queue and a left-edge drawer holding every destination above — pinned from
-1280px, an overlay below it.
+links. Everything from `/queues` inwards shares one frame: a sidebar that answers,
+top to bottom, which queue (a switcher), what am I doing (Counter, History,
+Share, Settings) and who am I (Team, appearance, sign out) — pinned from
+1024px, a bar with tabs below it.
 
 **Customer view (mobile-first, P0)** — business name, `Currently serving #14`, `Your number #21`, people ahead, estimated wait, a progress indicator, and *Leave queue* as a visible secondary action (not buried). State changes with proximity: many ahead → neutral/green "You're in the queue"; ≤3 ahead → amber "You're getting close"; 1 ahead → "You're next"; serving → red/prominent "It's your turn!" — impossible to miss.
 

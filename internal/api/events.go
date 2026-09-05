@@ -22,10 +22,15 @@ const (
 	EventCustomerSkipped  EventType = "CUSTOMER_SKIPPED"
 	EventCustomerServed   EventType = "CUSTOMER_SERVED"
 	EventCustomerAttended EventType = "CUSTOMER_ATTENDED"
+	EventCustomerStarted  EventType = "CUSTOMER_STARTED"
 	EventQueuePaused      EventType = "QUEUE_PAUSED"
 	EventQueueResumed     EventType = "QUEUE_RESUMED"
 	EventQueueClosed      EventType = "QUEUE_CLOSED"
 	EventQueueReset       EventType = "QUEUE_RESET"
+
+	// A customer said where they are. Nothing about the public state changes,
+	// but the counter's rows do, and every frame is a full snapshot anyway.
+	EventCustomerPresence EventType = "CUSTOMER_PRESENCE"
 )
 
 // PublicEvent is what customer phones and display screens receive. It carries
@@ -107,4 +112,8 @@ func (s *Server) publish(ctx context.Context, queueID string, eventType EventTyp
 		return
 	}
 	s.hub.Publish(queueID, event)
+
+	// After the frame, never before it: a phone with the pass open gets the
+	// screen first and the nudge is for the one that is put away.
+	go s.notifyPush(queueID)
 }

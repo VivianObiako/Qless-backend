@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"time"
 
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
@@ -27,12 +28,12 @@ func (s *Server) customerView(ctx context.Context, q queue.Queue, entry *queue.E
 	view := CustomerView{
 		State:        state,
 		Entry:        entry,
-		JoinEstimate: queue.EstimateWait(state.WaitingCount, q.AverageServiceMinutes),
+		JoinEstimate: queue.EstimateWait(state.WaitingCount, state.ServiceMinutes),
 	}
 
 	if entry != nil && entry.Status == queue.EntryWaiting {
 		view.PeopleAhead = state.PeopleAhead(entry.Number)
-		view.Estimate = queue.EstimateWait(view.PeopleAhead, q.AverageServiceMinutes)
+		view.Estimate = queue.EstimateWait(view.PeopleAhead, state.ServiceMinutes)
 	}
 
 	return view, nil
@@ -51,6 +52,22 @@ type OperatorView struct {
 	Serving      *queue.Entry `json:"serving"`
 	Waiting      []WaitingRow `json:"waiting"`
 	WaitingCount int          `json:"waitingCount"`
+
+	// Stood down inside the recall window, most recent first. Still theirs to
+	// be called back on; after the window they are history only.
+	Skipped []queue.Entry `json:"skipped"`
+
+	// Measured is what service has actually taken lately, so settings can
+	// show the figure the estimates are using next to the one that was typed.
+	Measured queue.ServiceMeasure `json:"measured"`
+
+	// Arrival is how long people have been taking to turn up once called —
+	// the number a hold time should be set against.
+	Arrival queue.ServiceMeasure `json:"arrival"`
+
+	// LastActivityAt is when anything last happened here, so a dashboard
+	// opened the next morning can ask whether to start a new day.
+	LastActivityAt *time.Time `json:"lastActivityAt"`
 
 	// ShowsNames says whether this payload carries them, so the screen renders
 	// a queue of numbers on purpose rather than a queue of blanks by accident.
@@ -80,7 +97,30 @@ func (s *Server) operatorView(
 		return OperatorView{}, err
 	}
 
-	view := OperatorView{Queue: q, Waiting: []WaitingRow{}, ShowsNames: withNames}
+	measured, err := s.store.MeasuredService(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+	serviceMinutes := q.ServiceMinutesIn(measured)
+
+	arrival, err := s.store.MeasuredArrival(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+
+	lastActivity, err := s.store.LastActivity(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+
+	view := OperatorView{
+		Queue:          q,
+		Waiting:        []WaitingRow{},
+		ShowsNames:     withNames,
+		Measured:       measured,
+		Arrival:        arrival,
+		LastActivityAt: lastActivity,
+	}
 
 	for _, entry := range entries {
 		if !withNames {
@@ -94,10 +134,22 @@ func (s *Server) operatorView(
 		}
 		view.Waiting = append(view.Waiting, WaitingRow{
 			Entry:    entry,
-			Estimate: queue.EstimateWait(len(view.Waiting), q.AverageServiceMinutes),
+			Estimate: queue.EstimateWait(len(view.Waiting), serviceMinutes),
 		})
 	}
 
 	view.WaitingCount = len(view.Waiting)
+
+	skipped, err := s.store.ListRecentlySkipped(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+	if !withNames {
+		for i := range skipped {
+			skipped[i].CustomerName = ""
+		}
+	}
+	view.Skipped = skipped
+
 	return view, nil
 }
