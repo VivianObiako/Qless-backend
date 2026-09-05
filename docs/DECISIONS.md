@@ -644,3 +644,77 @@ as "by you" for everybody — so staff saw their manager's work credited to
 themselves. It now reads "by the owner" unless the owner is the one reading. The
 underlying data was right; the sentence was not.
 
+## Direction — "Paper"
+
+The Ticket Pass direction was replaced in September 2026 by **Paper**: black on
+white, one family (Geist) at two weights, hairlines instead of cards, and one
+colour with one meaning. The mockups that led here live outside the
+repository; the reasoning is recorded here.
+
+**Light first.** The counter is a working screen under shop lighting, so it
+opens light. Dark is a preference, and "system" follows the device. The bare
+`:root` is the light set and `[data-theme="dark"]` the inversion.
+
+**One family, two weights.** Geist for everything that names, counts, is read
+or is pressed; Geist Mono only for codes and slugs, which are transcribed.
+Nothing is heavier than 500: hierarchy comes from size and colour, and weight
+reads heavier as size grows. The uppercase tracked label voice is gone.
+
+**Colour means one thing.** Status is a dot and a word: solid is open, hollow
+is paused, grey is closed. Vermilion means a person being called, on both
+sides of the counter — the customer's turn screen and the number at the
+counter — and landing step 05. It appears nowhere else.
+
+**The ticket keeps its edge.** Its stock is now the page colour, so a hairline
+and the notches are what make it a ticket. The notches sit a pixel over the
+edge and carry the hairline around their curve only, so the tear reads as a
+cut. The mark is the same object: a stub with a Q punched through it, one
+path, one colour, on any ground.
+
+**Navigation answers three questions, top to bottom.** Which queue (the
+switcher), what am I doing (Counter, History, Share, Settings), who am I (the
+personal menu: Team, appearance, sign out). "Your business" is gone: it put a
+list of places next to a list of people under a label that named neither.
+Share is a screen because "turn the tablet round so they can scan it" is a
+real thing that happens at a counter. Below 1024px the sidebar is a bar and
+the four screens are tabs.
+
+**The landing reel stays.** It is the most crafted motion in the product. It
+was retuned to the new type and now follows the hero ticket's size, so the
+card that flies in is the one that lands; it plays once per tab.
+
+**Presence is a flow, not switches.** Each state of the pass offers only what
+moves things forward: on my way, then here; or, when called, here with a
+two-minute hold beneath it. Once "here" is said nothing else is asked. It is
+recorded on the entry by the API so it is the same on every device and the
+counter sees it as a tag.
+
+**The counter and the wall display keep the screen awake.** A tablet that dims
+to black is a blank counter, and a display that sleeps is a blank wall. Both
+can be added to a home screen through a manifest.
+
+**A skip is a pause, not an ending.** The old skip finished the entry, so a
+customer who stepped out for two minutes had to rejoin at the back. Now a
+skipped entry keeps its number for 30 minutes and sits under "Skipped
+recently" on the counter with one tap to call it back. The window exists
+because the number is reissued once the entry is out of it — the
+`one_active_entry_per_number` index is what makes recall safe, and what
+refuses it afterwards as `recall_expired`. Thirty minutes is longer than any
+"I'll be right back" and shorter than a reissued number is likely to matter.
+
+**Walk-ins are entries.** A person at the counter with no phone gets a number
+from "Add a person" and joins the back of the line like everyone else, with a
+`walkIn` flag so the row can say so. They cannot be told when it is their
+turn, which is why the counter shows the tag: staff call them by voice.
+
+**History is a table.** The grouped list hid the two things staff actually
+look for: a name, and who served them. It is now one full-width table with
+served-by as its own column, sortable on number, name and time, filterable by
+day, outcome and server, 25 rows a page, and exportable as CSV. The summary
+figures above it describe what is in view, so a filter is also a report.
+
+**A second queue is a dialog.** The full page at `/create` is for a visitor
+with nothing yet. An owner adding a queue from the switcher or the queues
+list is one form away from running it, so the form comes to them and lands on
+the new queue's counter. No recovery code is shown there: this browser already
+holds a session, and codes are only issued when a business is created.

@@ -5,9 +5,14 @@ Judgment calls get written up in `DECISIONS.md` as they are made.
 
 ## Where things stand
 
-Phases 0–6 are done and verified. Phase 7 (documentation) is next. Migrations
-run to **00004** and phase 6 needed no server-side change at all — the display
-board runs on the public socket that milestone 2 already built.
+Phases 0–6 and 8 are done. Phase 9 (the edge drawer) was overtaken by the
+**Paper** redesign, which replaced the whole dashboard frame with a sidebar;
+see phase 10 below and `DECISIONS.md` "Direction — Paper". Phase 7
+(documentation) has been done piecemeal as screens changed; the remaining
+items are listed there.
+
+Migrations run to **00006**: 00005 records a customer's presence on their
+entry, 00006 flags entries added at the counter as walk-ins.
 
 The names toggle is live end to end: default off, settable per queue, and it
 changes what staff receive on the dashboard, in history and over the socket —
@@ -18,16 +23,20 @@ closed by 2.5. Owners created before that screen existed still have no code they
 have ever seen; their bookmarked dashboard link is their way back in, and
 redeeming is the only way to mint them a fresh one.
 
-Running the stack locally:
+Running the stack locally (two repositories side by side):
 
-- Postgres: `docker compose up -d db` — container `qless-db`, host port **5433**.
-- API: already listening on **:8080** (`/healthz` returns 200).
-- Web: `npm run dev --prefix web` on **:3000**. Check whether one is already
+- Postgres: `docker compose up -d db` in `Qless-backend` — container `qless-db`,
+  host port **5433**.
+- API: `go run ./cmd/server` in `Qless-backend` on **:8080**, with
+  `ALLOWED_ORIGIN` naming the web app's origin — CORS and the socket handshake
+  both check it.
+- Web: `npm run dev` in `Qless` on **:3000**. Check whether one is already
   running before starting another — two `next dev` processes share `.next` and
   will fight over the build cache.
-- Checks: `npx tsc --noEmit` and `npx eslint`, both run from `web/`.
-- This directory is **not** a git repository, so there is nothing to commit and
-  no branch to cut.
+- Checks: `npx tsc --noEmit` and `npx eslint` in `Qless`; `go test ./...` in
+  `Qless-backend`.
+- Branches at the time of writing: web `redesign/paper`, API
+  `feature/presence`.
 
 ---
 
@@ -540,7 +549,9 @@ flagged as such: they are gaps to close in code, not sentences to rewrite.
 
 ### Phase 9 — the edge drawer
 
-Supersedes 8.1's tab row. Phase 8 was not wasted: it created `DashboardChrome`
+**Superseded by phase 10.** The drawer was never built; the Paper redesign
+answered the same two problems with a pinned sidebar and a queue switcher
+popover. Kept for the reasoning. Supersedes 8.1's tab row. Phase 8 was not wasted: it created `DashboardChrome`
 as the one place all dashboard screens get their frame, and this replaces the
 band inside that component instead of touching five screens.
 
@@ -578,6 +589,43 @@ asked to hold ten.
       phase exists to fix, and the Queues page now does its job. It costs an
       owner with two queues one extra step to switch; if that bites, the answer
       is a recent-queues line in the drawer, not the pills back.
+
+---
+
+### Phase 10 — Paper
+
+The redesign, on web branch `redesign/paper` and API branch
+`feature/presence`. Six steps, each verified against the live API before the
+next began.
+
+- [x] **10.1 Tokens and type.** Light-first `:root`, `[data-theme="dark"]`
+      inversion, "system" preference resolved before paint. Geist and Geist
+      Mono via `next/font`; nothing heavier than 500.
+- [x] **10.2 Primitives.** Pill buttons, 44px fields with a halo focus, the
+      ticket with hairline notches, the mark (a stub tile with a Q punched
+      out), theme toggle, notices, dialogs.
+- [x] **10.3 Navigation.** `DashboardChrome` becomes a sidebar answering
+      three questions top to bottom: which queue (switcher), what am I doing
+      (Counter, History, Share, Settings), who am I (personal menu). The
+      content column is centred at 1680px; the top row holds the finder and the
+      live/status dots. `/queues` and `/operators` share the chrome.
+- [x] **10.4 Counter, settings, history.** The counter puts the number being
+      called in vermilion with presence beside it; rows carry "Call now" and a
+      per-row menu. Settings is two columns with a switch. History is a
+      full-width table — sortable by number, name and time, filterable by day,
+      outcome and who served, paginated at 25, exportable as CSV.
+- [x] **10.5 Customer pass, join, create, enter.** Presence is a flow: on my
+      way, then here; when called, here or a two-minute hold. Recorded on the
+      entry by the API (00005) and shown to the counter as a tag.
+- [x] **10.6 Landing, display, print, wake lock, manifest.** The reel and the
+      hero ticket stay. The display board is retuned with a larger QR column;
+      the counter and the board hold a wake lock.
+- [x] **10.7 Follow-ups from the first review.** Walk-ins (`POST
+      /api/queues/{key}/entries`, 00006) for a person with no phone. Skipping
+      keeps the number for 30 minutes and lists it under "Skipped recently"
+      with one-tap recall; after that the call is refused with
+      `recall_expired`. Creating a queue from the dashboard or the queues list
+      happens in a dialog. History fetches up to 1000 rows.
 
 ---
 

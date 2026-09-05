@@ -189,12 +189,14 @@ PATCH  /api/queues/{key}                        config                 [owner]
 POST   /api/queues/{key}/close|reset                                   [owner]
 POST   /api/queues/{key}/pause|resume                                  [access]
 POST   /api/queues/{key}/next                   serve next             [access]
+POST   /api/queues/{key}/entries                add a walk-in          [access]
 POST   /api/queues/{key}/entries/{entryId}/serve|attend|skip           [access]
 GET    /api/queues/{key}/entries                the dashboard's own view [access]
-GET    /api/queues/{key}/history                                       [access]
+GET    /api/queues/{key}/history                ?limit= up to 1000, default 200 [access]
 
 POST   /api/queues/{key}/join                   join
 GET    /api/queues/{key}/me                     my active entry (customer token)
+POST   /api/queues/{key}/presence               on my way / here / hold (customer token)
 POST   /api/queues/{key}/leave                  leave
 
 GET    /api/queues/{key}/ws                     realtime
@@ -204,7 +206,15 @@ Each handler calls `requireOwner` or `requireQueueAccess` itself. There is
 deliberately no middleware, so a new route cannot silently skip the check by
 forgetting to be wrapped in one.
 
-**Events:** `QUEUE_UPDATED · CUSTOMER_JOINED · CUSTOMER_LEFT · CUSTOMER_SKIPPED · CUSTOMER_SERVED · CUSTOMER_ATTENDED · QUEUE_PAUSED · QUEUE_RESUMED · QUEUE_CLOSED · QUEUE_RESET`
+**Events:** `QUEUE_UPDATED · CUSTOMER_JOINED · CUSTOMER_LEFT · CUSTOMER_SKIPPED · CUSTOMER_SERVED · CUSTOMER_ATTENDED · CUSTOMER_PRESENCE · QUEUE_PAUSED · QUEUE_RESUMED · QUEUE_CLOSED · QUEUE_RESET`
+
+**Skip is not final.** A skipped entry keeps its number for 30 minutes and can
+be served (recalled) in that window. After it the number may have been
+reissued, and the call is refused with `recall_expired` (409). The dashboard
+view lists the entries still inside the window as `skipped`.
+
+**Walk-ins.** Staff can add a person who has no phone; the entry is flagged
+`walkIn`, joins the back of the line and is served like any other.
 
 **Payloads are scoped by audience — this is a privacy requirement, not a nicety.**
 
@@ -236,15 +246,17 @@ Never leak raw backend errors to the UI.
 /q/[slug]                customer: join + live status (one page, four states)
 /dashboard/[id]          the counter
 /dashboard/[id]/history  history
+/dashboard/[id]/share    link, QR, print sheet, display, customer view
 /dashboard/[id]/settings config                                    [owner]
 /display/[slug]          public display
 /print/[slug]            printable QR sheet
 ```
 
 `/create` and `/enter` are the two ways in, and both are screens rather than
-links. Everything from `/queues` inwards shares one frame: a header naming the
-queue and a left-edge drawer holding every destination above — pinned from
-1280px, an overlay below it.
+links. Everything from `/queues` inwards shares one frame: a sidebar that answers,
+top to bottom, which queue (a switcher), what am I doing (Counter, History,
+Share, Settings) and who am I (Team, appearance, sign out) — pinned from
+1024px, a bar with tabs below it.
 
 **Customer view (mobile-first, P0)** — business name, `Currently serving #14`, `Your number #21`, people ahead, estimated wait, a progress indicator, and *Leave queue* as a visible secondary action (not buried). State changes with proximity: many ahead → neutral/green "You're in the queue"; ≤3 ahead → amber "You're getting close"; 1 ahead → "You're next"; serving → red/prominent "It's your turn!" — impossible to miss.
 
