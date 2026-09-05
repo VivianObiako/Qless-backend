@@ -22,7 +22,7 @@ type redeemRequest struct {
 type redeemResponse struct {
 	Role   queue.PrincipalType `json:"role"`
 	Token  string              `json:"token"`
-	Queues []queue.Queue       `json:"queues"`
+	Queues []queue.QueueCard   `json:"queues"`
 
 	// RecoveryCode is the owner's replacement code, returned once. It is not
 	// live until the client acknowledges it — see acknowledgeRecoveryCode.
@@ -205,7 +205,15 @@ func (s *Server) acknowledgeRecoveryCode(w http.ResponseWriter, r *http.Request)
 // the answer, and the browser only has to hold one token.
 type myQueuesResponse struct {
 	Role   queue.PrincipalType `json:"role"`
-	Queues []queue.Queue       `json:"queues"`
+	Queues []queue.QueueCard   `json:"queues"`
+
+	// Archived is what the owner has put away, so it can be brought back.
+	// Always empty for an operator: their manager decides what they see.
+	Archived []queue.Queue `json:"archived"`
+
+	// DisplayName is what the owner asked to be called. Empty for an
+	// operator, whose name lives on the roster.
+	DisplayName string `json:"displayName"`
 }
 
 func (s *Server) myQueues(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +227,59 @@ func (s *Server) myQueues(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, myQueuesResponse{Role: actor.Type, Queues: queues})
+
+	res := myQueuesResponse{Role: actor.Type, Queues: queues, Archived: []queue.Queue{}}
+	if actor.IsOwner() {
+		if res.Archived, err = s.store.ArchivedQueues(r.Context(), actor.OwnerID); err != nil {
+			writeError(w, err)
+			return
+		}
+		if res.DisplayName, err = s.store.OwnerName(r.Context(), actor.OwnerID); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	httpx.JSON(w, http.StatusOK, res)
+}
+
+type updateMeRequest struct {
+	DisplayName string `json:"displayName"`
+}
+
+type updateMeResponse struct {
+	DisplayName string `json:"displayName"`
+}
+
+const ownerNameLimit = 60
+
+// updateMe lets an owner say what they are called. Owner-only: an operator's
+// name is the manager's to set, from the roster.
+func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireActor(w, r)
+	if !ok {
+		return
+	}
+	if !actor.IsOwner() {
+		writeError(w, queue.ErrUnauthorized)
+		return
+	}
+
+	var req updateMeRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		writeError(w, invalid("We couldn't read that request."))
+		return
+	}
+	name := strings.TrimSpace(req.DisplayName)
+	if len([]rune(name)) > ownerNameLimit {
+		writeError(w, invalid("Your name must be 60 characters or fewer."))
+		return
+	}
+
+	if err := s.store.SetOwnerName(r.Context(), actor.OwnerID, name); err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, updateMeResponse{DisplayName: name})
 }
 
 type revokeOthersResponse struct {

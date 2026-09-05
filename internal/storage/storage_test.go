@@ -250,7 +250,7 @@ func TestJoinBlockedWhenPausedOrClosed(t *testing.T) {
 			store := newTestStore(t)
 			q := newTestQueue(t, store, nil)
 
-			if _, err := store.SetStatus(ctx, q.ID, tc.status); err != nil {
+			if _, err := store.SetStatus(ctx, q.ID, tc.status, ""); err != nil {
 				t.Fatalf("set status: %v", err)
 			}
 
@@ -272,7 +272,7 @@ func TestPausingPreservesExistingEntries(t *testing.T) {
 	if _, err := store.Join(ctx, q.ID, "Patient", customerToken); err != nil {
 		t.Fatalf("join: %v", err)
 	}
-	if _, err := store.SetStatus(ctx, q.ID, queue.StatusPaused); err != nil {
+	if _, err := store.SetStatus(ctx, q.ID, queue.StatusPaused, ""); err != nil {
 		t.Fatalf("pause: %v", err)
 	}
 

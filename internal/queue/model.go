@@ -45,8 +45,56 @@ type Queue struct {
 	// customers see, and it does not carry this.
 	ShowNamesToOperators bool `json:"showNamesToOperators"`
 
+	// HoldMinutes is how long a called customer's place is held: the counter
+	// suggests a skip after it, a skipped number can be recalled within it,
+	// and the pass promises it. Zero means no hold at all.
+	HoldMinutes int `json:"holdMinutes"`
+
+	// PauseNote is shown to customers while the queue is paused, and cleared
+	// when it resumes.
+	PauseNote string `json:"pauseNote"`
+
+	// ArchivedAt is set once the owner has put the queue away. It is hidden
+	// from their list and refuses joins, and everything it recorded stays.
+	ArchivedAt *time.Time `json:"archivedAt"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// RecallWindow is how long a skipped customer can be called back with the
+// number they had. It is the queue's hold time; zero means a skip is final.
+func (q Queue) RecallWindow() time.Duration {
+	return time.Duration(q.HoldMinutes) * time.Minute
+}
+
+// MeasureSample is how many real service times a queue needs in the recent
+// window before the measured average replaces the owner's setting.
+const MeasureSample = 5
+
+// ServiceMeasure is what the day has actually looked like: the average of the
+// last few real start-to-finish times, and how many of them there were.
+type ServiceMeasure struct {
+	Minutes int `json:"minutes"`
+	Sample  int `json:"sample"`
+}
+
+// ServiceMinutesIn is the figure every estimate is built from: the measured
+// average once the day has produced enough of one, the owner's setting until
+// then. A range that is wrong by noon teaches customers to ignore it.
+func (q Queue) ServiceMinutesIn(m ServiceMeasure) int {
+	if m.Sample >= MeasureSample && m.Minutes > 0 {
+		return m.Minutes
+	}
+	return q.AverageServiceMinutes
+}
+
+// QueueCard is a queue with the two live figures an owner reads a list by:
+// what is being served and how many are waiting.
+type QueueCard struct {
+	Queue
+	ServingNumber *int `json:"servingNumber"`
+	WaitingCount  int  `json:"waitingCount"`
 }
 
 // Presence is what a customer has told the counter about where they are.
@@ -84,11 +132,6 @@ type Entry struct {
 	WalkIn bool `json:"walkIn"`
 }
 
-// RecallWindow is how long a skipped customer can be called back with the
-// number they had. Long enough for a bathroom break, short enough that a
-// number is not held open all afternoon.
-const RecallWindow = 30 * time.Minute
-
 // Summary is the queue metadata safe to expose on public surfaces.
 type Summary struct {
 	ID                    string `json:"id"`
@@ -98,6 +141,8 @@ type Summary struct {
 	Status                Status `json:"status"`
 	AverageServiceMinutes int    `json:"averageServiceMinutes"`
 	MaxCapacity           *int   `json:"maxCapacity"`
+	HoldMinutes           int    `json:"holdMinutes"`
+	PauseNote             string `json:"pauseNote"`
 }
 
 func (q Queue) Summary() Summary {
@@ -109,6 +154,8 @@ func (q Queue) Summary() Summary {
 		Status:                q.Status,
 		AverageServiceMinutes: q.AverageServiceMinutes,
 		MaxCapacity:           q.MaxCapacity,
+		HoldMinutes:           q.HoldMinutes,
+		PauseNote:             q.PauseNote,
 	}
 }
 
@@ -122,6 +169,10 @@ type PublicState struct {
 	WaitingNumbers []int   `json:"waitingNumbers"`
 	WaitingCount   int     `json:"waitingCount"`
 	IsFull         bool    `json:"isFull"`
+
+	// ServiceMinutes is the figure the estimates below were built from — the
+	// measured average once there is one, the setting until then.
+	ServiceMinutes int `json:"serviceMinutes"`
 
 	// Estimates is indexed by people ahead, so a customer who has worked out
 	// their own position from WaitingNumbers can read their wait without the

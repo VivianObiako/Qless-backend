@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, created_at, updated_at`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, archived_at, created_at, updated_at`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
@@ -17,7 +19,7 @@ func scanQueue(row pgx.Row) (queue.Queue, error) {
 	err := row.Scan(
 		&q.ID, &q.Name, &q.Slug, &q.Description,
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
-		&q.ShowNamesToOperators, &q.CreatedAt, &q.UpdatedAt,
+		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
 	)
 	if err != nil {
 		return queue.Queue{}, err
@@ -39,6 +41,7 @@ type CreateQueueParams struct {
 	OwnerID                  string
 	NewOwnerRecoveryCodeHash string
 	NewOwnerTokenHash        string
+	NewOwnerName             string
 }
 
 // CreateQueueResult carries the owner alongside the queue, since creating a
@@ -69,8 +72,8 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 
 			if ownerID == "" {
 				if err := tx.QueryRow(ctx,
-					`INSERT INTO owners (recovery_code_hash) VALUES ($1) RETURNING id`,
-					p.NewOwnerRecoveryCodeHash,
+					`INSERT INTO owners (recovery_code_hash, display_name) VALUES ($1, $2) RETURNING id`,
+					p.NewOwnerRecoveryCodeHash, p.NewOwnerName,
 				).Scan(&ownerID); err != nil {
 					return fmt.Errorf("insert owner: %w", err)
 				}
@@ -132,6 +135,7 @@ type UpdateQueueParams struct {
 	MaxCapacitySet        bool
 	MaxCapacity           *int
 	ShowNamesToOperators  *bool
+	HoldMinutes           *int
 }
 
 // UpdateQueue applies the operator's settings. Changing the name does not
@@ -145,11 +149,12 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 		     average_service_minutes = COALESCE($4, average_service_minutes),
 		     max_capacity = CASE WHEN $5 THEN $6 ELSE max_capacity END,
 		     show_names_to_operators = COALESCE($7, show_names_to_operators),
+		     hold_minutes = COALESCE($8, hold_minutes),
 		     updated_at = now()
 		 WHERE id = $1
 		 RETURNING `+queueColumns,
 		queueID, p.Name, p.Description, p.AverageServiceMinutes,
-		p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators,
+		p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return queue.Queue{}, queue.ErrNotFound
@@ -162,10 +167,15 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 
 // SetStatus moves the queue between OPEN, PAUSED and CLOSED. Pausing and
 // closing both stop new joins; neither disturbs the customers already in line.
-func (s *Store) SetStatus(ctx context.Context, queueID string, status queue.Status) (queue.Queue, error) {
+// The note travels with a pause and is cleared by every other move, so a
+// "back at 2:30" never outlives the break it described.
+func (s *Store) SetStatus(ctx context.Context, queueID string, status queue.Status, note string) (queue.Queue, error) {
+	if status != queue.StatusPaused {
+		note = ""
+	}
 	q, err := scanQueue(s.pool.QueryRow(ctx,
-		`UPDATE queues SET status = $2, updated_at = now() WHERE id = $1 RETURNING `+queueColumns,
-		queueID, string(status),
+		`UPDATE queues SET status = $2, pause_note = $3, updated_at = now() WHERE id = $1 RETURNING `+queueColumns,
+		queueID, string(status), note,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return queue.Queue{}, queue.ErrNotFound
@@ -176,6 +186,70 @@ func (s *Store) SetStatus(ctx context.Context, queueID string, status queue.Stat
 	return q, nil
 }
 
+// SetArchived puts a queue away or brings it back. Archiving closes it as
+// well, so nobody can join a queue its owner has stopped looking at; restoring
+// leaves it closed, and reopening is the owner's next, separate decision.
+func (s *Store) SetArchived(ctx context.Context, queueID string, archived bool) (queue.Queue, error) {
+	query := `UPDATE queues SET archived_at = NULL, updated_at = now() WHERE id = $1 RETURNING ` + queueColumns
+	if archived {
+		query = `UPDATE queues SET archived_at = now(), status = 'CLOSED', pause_note = '', updated_at = now()
+		          WHERE id = $1 RETURNING ` + queueColumns
+	}
+	q, err := scanQueue(s.pool.QueryRow(ctx, query, queueID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return queue.Queue{}, queue.ErrNotFound
+	}
+	if err != nil {
+		return queue.Queue{}, fmt.Errorf("set queue archived: %w", err)
+	}
+	return q, nil
+}
+
+// MeasuredService averages the last ten real start-to-finish times from the
+// past twelve hours. Only entries that were called and then finished count:
+// somebody marked as served straight from the list never had a service time.
+func (s *Store) MeasuredService(ctx context.Context, queueID string) (queue.ServiceMeasure, error) {
+	var (
+		minutes float64
+		sample  int
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60), 0), COUNT(*)
+		   FROM (SELECT started_at, completed_at
+		           FROM queue_entries
+		          WHERE queue_id = $1 AND status = 'ATTENDED'
+		            AND started_at IS NOT NULL AND completed_at > started_at
+		            AND completed_at > now() - interval '12 hours'
+		          ORDER BY completed_at DESC
+		          LIMIT 10) recent`,
+		queueID,
+	).Scan(&minutes, &sample)
+	if err != nil {
+		return queue.ServiceMeasure{}, fmt.Errorf("measure service time: %w", err)
+	}
+	rounded := int(math.Round(minutes))
+	if sample > 0 && rounded < 1 {
+		rounded = 1
+	}
+	return queue.ServiceMeasure{Minutes: rounded, Sample: sample}, nil
+}
+
+// LastActivity is the moment anything last happened to this queue's entries,
+// or nil for a queue nobody has ever joined. The dashboard reads it to ask
+// whether a new day has started.
+func (s *Store) LastActivity(ctx context.Context, queueID string) (*time.Time, error) {
+	var at *time.Time
+	err := s.pool.QueryRow(ctx,
+		`SELECT GREATEST(MAX(joined_at), MAX(started_at), MAX(completed_at))
+		   FROM queue_entries WHERE queue_id = $1`,
+		queueID,
+	).Scan(&at)
+	if err != nil {
+		return nil, fmt.Errorf("read last activity: %w", err)
+	}
+	return at, nil
+}
+
 // PublicState assembles the payload every customer and display screen sees.
 // It reads numbers only — no names cross this boundary.
 func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicState, error) {
@@ -184,8 +258,14 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 		WaitingNumbers: []int{},
 	}
 
+	measured, err := s.MeasuredService(ctx, q.ID)
+	if err != nil {
+		return queue.PublicState{}, err
+	}
+	state.ServiceMinutes = q.ServiceMinutesIn(measured)
+
 	var servingNumber int
-	err := s.pool.QueryRow(ctx,
+	err = s.pool.QueryRow(ctx,
 		`SELECT number FROM queue_entries WHERE queue_id = $1 AND status = 'SERVING'`, q.ID,
 	).Scan(&servingNumber)
 	switch {
@@ -217,7 +297,7 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 	}
 
 	state.WaitingCount = len(state.WaitingNumbers)
-	state.Estimates = queue.EstimateTable(state.WaitingCount, q.AverageServiceMinutes)
+	state.Estimates = queue.EstimateTable(state.WaitingCount, state.ServiceMinutes)
 
 	if q.MaxCapacity != nil {
 		active := state.WaitingCount

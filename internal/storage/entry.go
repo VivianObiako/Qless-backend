@@ -268,11 +268,16 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 		}
 
 		// A skipped customer can be called back with the number they had,
-		// for a while. After that the record is history, not a place in line.
+		// for as long as the queue holds a place. After that the record is
+		// history, not a place in line.
 		switch target.Status {
 		case queue.EntryWaiting:
 		case queue.EntrySkipped:
-			if target.CompletedAt == nil || time.Since(*target.CompletedAt) > queue.RecallWindow {
+			window, err := recallWindow(ctx, tx, queueID)
+			if err != nil {
+				return err
+			}
+			if window == 0 || target.CompletedAt == nil || time.Since(*target.CompletedAt) > window {
 				return queue.ErrRecallExpired
 			}
 		default:
@@ -492,6 +497,16 @@ func lockEntry(ctx context.Context, tx pgx.Tx, queueID, entryID string) (queue.E
 	return entry, nil
 }
 
+// recallWindow reads the queue's hold time inside the transaction that is
+// about to act on it, so a setting changed a moment ago is what applies.
+func recallWindow(ctx context.Context, tx pgx.Tx, queueID string) (time.Duration, error) {
+	var minutes int
+	if err := tx.QueryRow(ctx, `SELECT hold_minutes FROM queues WHERE id = $1`, queueID).Scan(&minutes); err != nil {
+		return 0, fmt.Errorf("read hold minutes: %w", err)
+	}
+	return time.Duration(minutes) * time.Minute, nil
+}
+
 func lockQueue(ctx context.Context, tx pgx.Tx, queueID string) error {
 	var id string
 	err := tx.QueryRow(ctx, `SELECT id FROM queues WHERE id = $1 FOR UPDATE`, queueID).Scan(&id)
@@ -537,9 +552,10 @@ func attendCurrent(ctx context.Context, tx pgx.Tx, queueID string, actor queue.A
 func (s *Store) ListRecentlySkipped(ctx context.Context, queueID string) ([]queue.Entry, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+entryColumns+` FROM queue_entries
-		 WHERE queue_id = $1 AND status = 'SKIPPED' AND completed_at > now() - $2::interval
+		 WHERE queue_id = $1 AND status = 'SKIPPED'
+		   AND completed_at > now() - make_interval(mins => (SELECT hold_minutes FROM queues WHERE id = $1))
 		 ORDER BY completed_at DESC`,
-		queueID, queue.RecallWindow,
+		queueID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list recently skipped: %w", err)

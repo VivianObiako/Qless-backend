@@ -206,13 +206,22 @@ func (s *Store) RevokeOtherOwnerSessions(ctx context.Context, ownerID, keepToken
 // QueuesForActor lists everything this actor can open, oldest first. An
 // operator with no assignments gets an empty list, which is a normal state
 // rather than an error — the roster screen says "ask your manager".
-func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.Queue, error) {
-	query := `SELECT ` + queueColumns + ` FROM queues WHERE owner_id = $1 ORDER BY created_at`
+func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.QueueCard, error) {
+	// The two live figures ride along as subselects: one query for the list
+	// however many queues an owner runs, and the list can say which one
+	// needs attention without opening each.
+	live := `(SELECT number FROM queue_entries e WHERE e.queue_id = q.id AND e.status = 'SERVING'),
+	         (SELECT count(*) FROM queue_entries e WHERE e.queue_id = q.id AND e.status = 'WAITING')`
+
+	query := `SELECT ` + prefixed(queueColumns, "q") + `, ` + live + `
+	            FROM queues q
+	           WHERE q.owner_id = $1 AND q.archived_at IS NULL
+	           ORDER BY q.created_at`
 	if actor.Type == queue.PrincipalOperator {
-		query = `SELECT ` + prefixed(queueColumns, "q") + `
+		query = `SELECT ` + prefixed(queueColumns, "q") + `, ` + live + `
 		           FROM queues q
 		           JOIN operator_queues oq ON oq.queue_id = q.id
-		          WHERE oq.operator_id = $1
+		          WHERE oq.operator_id = $1 AND q.archived_at IS NULL
 		          ORDER BY q.created_at`
 	}
 
@@ -222,18 +231,99 @@ func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.
 	}
 	defer rows.Close()
 
-	queues := []queue.Queue{}
+	cards := []queue.QueueCard{}
 	for rows.Next() {
-		q, err := scanQueue(rows)
+		var (
+			card    queue.QueueCard
+			status  string
+			serving *int
+		)
+		err := rows.Scan(
+			&card.ID, &card.Name, &card.Slug, &card.Description,
+			&card.AverageServiceMinutes, &card.MaxCapacity, &status, &card.NextNumber,
+			&card.ShowNamesToOperators, &card.HoldMinutes, &card.PauseNote, &card.ArchivedAt,
+			&card.CreatedAt, &card.UpdatedAt,
+			&serving, &card.WaitingCount,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("scan queue: %w", err)
+			return nil, fmt.Errorf("scan queue card: %w", err)
 		}
-		queues = append(queues, q)
+		card.Status = queue.Status(status)
+		card.ServingNumber = serving
+		cards = append(cards, card)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate queues for actor: %w", err)
 	}
+	return cards, nil
+}
+
+// ArchivedQueues lists what an owner has put away, most recently archived
+// first, so it can be brought back.
+func (s *Store) ArchivedQueues(ctx context.Context, ownerID string) ([]queue.Queue, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+queueColumns+` FROM queues WHERE owner_id = $1 AND archived_at IS NOT NULL ORDER BY archived_at DESC`,
+		ownerID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list archived queues: %w", err)
+	}
+	defer rows.Close()
+
+	queues := []queue.Queue{}
+	for rows.Next() {
+		q, err := scanQueue(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan archived queue: %w", err)
+		}
+		queues = append(queues, q)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate archived queues: %w", err)
+	}
 	return queues, nil
+}
+
+// OwnerName is what the owner asked to be called, or empty.
+func (s *Store) OwnerName(ctx context.Context, ownerID string) (string, error) {
+	var name string
+	err := s.pool.QueryRow(ctx, `SELECT display_name FROM owners WHERE id = $1`, ownerID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", queue.ErrUnauthorized
+	}
+	if err != nil {
+		return "", fmt.Errorf("read owner name: %w", err)
+	}
+	return name, nil
+}
+
+// OwnerNameForQueue answers the same question from a queue's side, for the
+// history screen, which knows the queue and not the owner.
+func (s *Store) OwnerNameForQueue(ctx context.Context, queueID string) (string, error) {
+	var name string
+	err := s.pool.QueryRow(ctx,
+		`SELECT o.display_name FROM owners o JOIN queues q ON q.owner_id = o.id WHERE q.id = $1`,
+		queueID,
+	).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", queue.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read owner name for queue: %w", err)
+	}
+	return name, nil
+}
+
+func (s *Store) SetOwnerName(ctx context.Context, ownerID, name string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE owners SET display_name = $2, updated_at = now() WHERE id = $1`, ownerID, name)
+	if err != nil {
+		return fmt.Errorf("set owner name: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return queue.ErrUnauthorized
+	}
+	return nil
 }
 
 // AuthorizeQueue answers whether this actor may act on this queue at all.

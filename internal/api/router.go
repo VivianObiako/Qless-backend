@@ -33,6 +33,7 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("POST /api/access/recovery-code/acknowledge", s.acknowledgeRecoveryCode)
 	mux.HandleFunc("GET /api/me/queues", s.myQueues)
 	mux.HandleFunc("POST /api/sessions/revoke-others", s.revokeOtherSessions)
+	mux.HandleFunc("PATCH /api/me", s.updateMe)
 
 	// The roster. Owner only, and scoped to the business rather than to any one
 	// queue — an operator can cover several.
@@ -71,6 +72,8 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("POST /api/queues/{key}/resume", s.resumeQueue)
 	mux.HandleFunc("POST /api/queues/{key}/close", s.closeQueue)
 	mux.HandleFunc("POST /api/queues/{key}/reset", s.resetQueue)
+	mux.HandleFunc("POST /api/queues/{key}/archive", s.archiveQueue)
+	mux.HandleFunc("POST /api/queues/{key}/unarchive", s.unarchiveQueue)
 
 	return httpx.Chain(mux,
 		httpx.Recoverer,

@@ -169,9 +169,18 @@ func (s *Server) setStatus(
 	q queue.Queue,
 	actor queue.Actor,
 	status queue.Status,
+	note string,
 	event EventType,
 ) {
-	if _, err := s.store.SetStatus(r.Context(), q.ID, status); err != nil {
+	// An archived queue stays closed until it is restored; reopening it from
+	// the counter would put a queue back in service that its owner has put
+	// away, without the list ever showing it.
+	if q.ArchivedAt != nil {
+		writeError(w, invalid("This queue is archived. Restore it from your queues first."))
+		return
+	}
+
+	if _, err := s.store.SetStatus(r.Context(), q.ID, status, note); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -180,12 +189,35 @@ func (s *Server) setStatus(
 	s.respondWithView(w, r, q.ID, actor)
 }
 
+type pauseRequest struct {
+	Note string `json:"note"`
+}
+
+const pauseNoteLimit = 80
+
+// pauseQueue stops new joins, with an optional line for the people who
+// scan in meanwhile: "Back at 2:30". The body is optional, so a client that
+// pauses with no body still pauses.
 func (s *Server) pauseQueue(w http.ResponseWriter, r *http.Request) {
 	q, actor, ok := s.requireQueueAccess(w, r)
 	if !ok {
 		return
 	}
-	s.setStatus(w, r, q, actor, queue.StatusPaused, EventQueuePaused)
+
+	var req pauseRequest
+	if r.ContentLength != 0 {
+		if err := httpx.DecodeJSON(w, r, &req); err != nil {
+			writeError(w, invalid("We couldn't read that request."))
+			return
+		}
+	}
+	note := strings.TrimSpace(req.Note)
+	if len([]rune(note)) > pauseNoteLimit {
+		writeError(w, invalid("Keep the note to 80 characters."))
+		return
+	}
+
+	s.setStatus(w, r, q, actor, queue.StatusPaused, note, EventQueuePaused)
 }
 
 func (s *Server) resumeQueue(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +225,7 @@ func (s *Server) resumeQueue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.setStatus(w, r, q, actor, queue.StatusOpen, EventQueueResumed)
+	s.setStatus(w, r, q, actor, queue.StatusOpen, "", EventQueueResumed)
 }
 
 // closeQueue is owner-only: ending the day is a decision about the business,
@@ -203,7 +235,38 @@ func (s *Server) closeQueue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.setStatus(w, r, q, actor, queue.StatusClosed, EventQueueClosed)
+	s.setStatus(w, r, q, actor, queue.StatusClosed, "", EventQueueClosed)
+}
+
+// archiveQueue puts a queue away: closed, hidden from the owner's list, and
+// refusing joins, with every entry it ever recorded left where it is. It is
+// the nearest thing to deleting a queue this product offers, on purpose.
+func (s *Server) archiveQueue(w http.ResponseWriter, r *http.Request) {
+	s.setArchived(w, r, true)
+}
+
+func (s *Server) unarchiveQueue(w http.ResponseWriter, r *http.Request) {
+	s.setArchived(w, r, false)
+}
+
+func (s *Server) setArchived(w http.ResponseWriter, r *http.Request, archived bool) {
+	q, actor, ok := s.requireOwner(w, r)
+	if !ok {
+		return
+	}
+
+	updated, err := s.store.SetArchived(r.Context(), q.ID, archived)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	event := EventQueueUpdated
+	if archived {
+		event = EventQueueClosed
+	}
+	s.publish(r.Context(), updated.ID, event)
+	s.respondWithView(w, r, updated.ID, actor)
 }
 
 // resetQueue clears the line and starts numbering again. Owner-only, and the
@@ -230,7 +293,10 @@ type updateQueueRequest struct {
 	AverageServiceMinutes *int    `json:"averageServiceMinutes"`
 	MaxCapacity           *int    `json:"maxCapacity"`
 	ShowNamesToOperators  *bool   `json:"showNamesToOperators"`
+	HoldMinutes           *int    `json:"holdMinutes"`
 }
+
+const holdMinutesLimit = 120
 
 // validate mirrors the create-time rules. A field the caller did not send is
 // left alone; maxCapacity sent as null means "no limit", which is why its
@@ -241,6 +307,11 @@ func (r updateQueueRequest) validate(capacityPresent bool) (storage.UpdateQueueP
 		MaxCapacitySet:        capacityPresent,
 		MaxCapacity:           r.MaxCapacity,
 		ShowNamesToOperators:  r.ShowNamesToOperators,
+		HoldMinutes:           r.HoldMinutes,
+	}
+
+	if r.HoldMinutes != nil && (*r.HoldMinutes < 0 || *r.HoldMinutes > holdMinutesLimit) {
+		return storage.UpdateQueueParams{}, invalid("Hold time must be between 0 and 120 minutes.")
 	}
 
 	if r.Name != nil {
@@ -404,13 +475,28 @@ func (s *Server) queueHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httpx.JSON(w, http.StatusOK, historyResponse{Queue: q, Entries: entries, ShowsNames: withNames})
+	ownerName, err := s.store.OwnerNameForQueue(r.Context(), q.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	httpx.JSON(w, http.StatusOK, historyResponse{
+		Queue:      q,
+		Entries:    entries,
+		ShowsNames: withNames,
+		OwnerName:  ownerName,
+	})
 }
 
 type historyResponse struct {
 	Queue      queue.Queue          `json:"queue"`
 	Entries    []queue.HistoryEntry `json:"entries"`
 	ShowsNames bool                 `json:"showsNames"`
+
+	// OwnerName lets an entry the owner handled carry their name rather than
+	// "the owner". Empty when they have not given one.
+	OwnerName string `json:"ownerName"`
 }
 
 // respondWithView answers every operator action with the refreshed dashboard,

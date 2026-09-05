@@ -15,6 +15,10 @@ type createQueueRequest struct {
 	Description           string `json:"description"`
 	AverageServiceMinutes int    `json:"averageServiceMinutes"`
 	MaxCapacity           *int   `json:"maxCapacity"`
+
+	// OwnerName is read only when this request creates the business. An
+	// owner adding a queue already has whatever name they gave.
+	OwnerName string `json:"ownerName"`
 }
 
 func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
@@ -39,11 +43,17 @@ func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 		return storage.CreateQueueParams{}, invalid("Maximum queue size must be between 1 and 1000.")
 	}
 
+	ownerName := strings.TrimSpace(r.OwnerName)
+	if len([]rune(ownerName)) > ownerNameLimit {
+		return storage.CreateQueueParams{}, invalid("Your name must be 60 characters or fewer.")
+	}
+
 	return storage.CreateQueueParams{
 		Name:                  name,
 		Description:           description,
 		AverageServiceMinutes: r.AverageServiceMinutes,
 		MaxCapacity:           r.MaxCapacity,
+		NewOwnerName:          ownerName,
 	}, nil
 }
 
