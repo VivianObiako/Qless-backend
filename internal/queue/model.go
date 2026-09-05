@@ -78,7 +78,16 @@ type Entry struct {
 	// PublicState carries numbers, and this rides on entries only.
 	Presence   *Presence  `json:"presence"`
 	PresenceAt *time.Time `json:"presenceAt"`
+
+	// Added at the counter by staff rather than from a phone. Nobody can
+	// recover this entry on a device, so the counter says so.
+	WalkIn bool `json:"walkIn"`
 }
+
+// RecallWindow is how long a skipped customer can be called back with the
+// number they had. Long enough for a bathroom break, short enough that a
+// number is not held open all afternoon.
+const RecallWindow = 30 * time.Minute
 
 // Summary is the queue metadata safe to expose on public surfaces.
 type Summary struct {

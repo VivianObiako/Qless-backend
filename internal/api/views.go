@@ -52,6 +52,10 @@ type OperatorView struct {
 	Waiting      []WaitingRow `json:"waiting"`
 	WaitingCount int          `json:"waitingCount"`
 
+	// Stood down inside the recall window, most recent first. Still theirs to
+	// be called back on; after the window they are history only.
+	Skipped []queue.Entry `json:"skipped"`
+
 	// ShowsNames says whether this payload carries them, so the screen renders
 	// a queue of numbers on purpose rather than a queue of blanks by accident.
 	ShowsNames bool `json:"showsNames"`
@@ -99,5 +103,17 @@ func (s *Server) operatorView(
 	}
 
 	view.WaitingCount = len(view.Waiting)
+
+	skipped, err := s.store.ListRecentlySkipped(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+	if !withNames {
+		for i := range skipped {
+			skipped[i].CustomerName = ""
+		}
+	}
+	view.Skipped = skipped
+
 	return view, nil
 }

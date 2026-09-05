@@ -10,6 +10,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/httpx"
 	"github.com/vivianobiako/qless/api/internal/queue"
 	"github.com/vivianobiako/qless/api/internal/storage"
+	"github.com/vivianobiako/qless/api/internal/token"
 )
 
 // decodeFields re-reads an already-decoded object into a typed struct, so a
@@ -315,7 +316,57 @@ func (s *Server) updateQueue(w http.ResponseWriter, r *http.Request) {
 	s.respondWithView(w, r, updated.ID, actor)
 }
 
-const historyLimit = 200
+// The history screen pages through this itself; the cap is what keeps one
+// request from carrying a whole year.
+const (
+	historyDefault = 200
+	historyLimit   = 1000
+)
+
+type walkInRequest struct {
+	Name string `json:"name"`
+}
+
+// addWalkIn puts somebody in the queue from the counter: a person with no
+// phone, or a phone that will not scan. They get the next number like anyone
+// else. The token behind the entry is minted here and thrown away, so nothing
+// can recover it on a device — which is the point, and what the flag says.
+func (s *Server) addWalkIn(w http.ResponseWriter, r *http.Request) {
+	q, actor, ok := s.requireQueueAccess(w, r)
+	if !ok {
+		return
+	}
+
+	var req walkInRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		writeError(w, invalid("We couldn't read that request."))
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeError(w, invalid("Enter their name to add them."))
+		return
+	}
+	if len([]rune(name)) > 60 {
+		writeError(w, invalid("Name must be 60 characters or fewer."))
+		return
+	}
+
+	discarded, err := token.New()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	if _, err := s.store.AddWalkIn(r.Context(), q.ID, name, token.Hash(discarded)); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	s.publish(r.Context(), q.ID, EventCustomerJoined)
+	s.respondWithView(w, r, q.ID, actor)
+}
 
 // queueHistory returns what this queue has finished with. Names are in here, so
 // it sits behind the same check as the dashboard itself.
@@ -325,11 +376,11 @@ func (s *Server) queueHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := historyLimit
+	limit := historyDefault
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > historyLimit {
-			writeError(w, invalid("Limit must be a whole number between 1 and 200."))
+			writeError(w, invalid("Limit must be a whole number between 1 and 1000."))
 			return
 		}
 		limit = parsed

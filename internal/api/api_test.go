@@ -464,3 +464,101 @@ func TestCustomerPresenceReachesTheCounterButNotThePublic(t *testing.T) {
 		t.Fatalf("expected a customer with no token to be refused, got %d", res.status)
 	}
 }
+
+// Staff can put a person in the queue from the counter. They hold a number
+// like anyone else, the counter can tell they came from the counter, and no
+// customer token was ever handed out for them.
+func TestWalkInIsAddedFromTheCounter(t *testing.T) {
+	client := newTestClient(t)
+	created := client.createQueue("Walk-in Shop")
+	owner := header{"Authorization", "Bearer " + created.OwnerToken}
+
+	res := client.do(http.MethodPost, "/api/queues/"+created.Queue.Slug+"/entries",
+		mustJSON(t, map[string]string{"name": "Kofi"}), owner)
+	if res.status != http.StatusOK {
+		t.Fatalf("add walk-in: %d %s", res.status, res.body)
+	}
+	if bytes.Contains(res.body, []byte("customerToken")) {
+		t.Fatalf("a walk-in must not be handed a customer token: %s", res.body)
+	}
+
+	var view struct {
+		Waiting []struct {
+			Number int    `json:"number"`
+			Name   string `json:"customerName"`
+			WalkIn bool   `json:"walkIn"`
+		} `json:"waiting"`
+	}
+	decode(t, res, &view)
+	if len(view.Waiting) != 1 || view.Waiting[0].Name != "Kofi" || !view.Waiting[0].WalkIn {
+		t.Fatalf("expected one walk-in named Kofi, got %+v", view.Waiting)
+	}
+
+	// Nobody but staff can do this, and a name is required.
+	res = client.do(http.MethodPost, "/api/queues/"+created.Queue.Slug+"/entries",
+		mustJSON(t, map[string]string{"name": "Anyone"}))
+	if res.status != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without a session, got %d", res.status)
+	}
+	res = client.do(http.MethodPost, "/api/queues/"+created.Queue.Slug+"/entries",
+		mustJSON(t, map[string]string{"name": "  "}), owner)
+	if res.status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a blank name, got %d", res.status)
+	}
+}
+
+// A skipped customer who walks up a minute later is called back with the
+// number they had, and shows on the dashboard as recallable until then.
+func TestSkippedCustomerCanBeRecalled(t *testing.T) {
+	client := newTestClient(t)
+	created := client.createQueue("Recall Shop")
+	owner := header{"Authorization", "Bearer " + created.OwnerToken}
+	slug := created.Queue.Slug
+
+	first, _ := client.join(slug, "Amara", "")
+	second, _ := client.join(slug, "Kofi", "")
+
+	var view struct {
+		Serving *struct {
+			Number int `json:"number"`
+		} `json:"serving"`
+		Waiting []struct {
+			ID     string `json:"id"`
+			Number int    `json:"number"`
+		} `json:"waiting"`
+		Skipped []struct {
+			ID     string `json:"id"`
+			Number int    `json:"number"`
+		} `json:"skipped"`
+	}
+	res := client.do(http.MethodGet, "/api/queues/"+slug+"/entries", nil, owner)
+	decode(t, res, &view)
+	if len(view.Waiting) != 2 {
+		t.Fatalf("expected two waiting, got %+v", view.Waiting)
+	}
+	amara := view.Waiting[0].ID
+
+	// Skip Amara: she leaves the line and appears among the recallable.
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/entries/"+amara+"/skip", nil, owner)
+	if res.status != http.StatusOK {
+		t.Fatalf("skip: %d %s", res.status, res.body)
+	}
+	decode(t, res, &view)
+	if len(view.Waiting) != 1 || len(view.Skipped) != 1 || view.Skipped[0].Number != first.Entry.Number {
+		t.Fatalf("expected Amara among the skipped, got waiting %+v skipped %+v", view.Waiting, view.Skipped)
+	}
+
+	// Call her back: she is at the counter with her old number, and nobody
+	// else moved.
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/entries/"+amara+"/serve", nil, owner)
+	if res.status != http.StatusOK {
+		t.Fatalf("recall: %d %s", res.status, res.body)
+	}
+	decode(t, res, &view)
+	if view.Serving == nil || view.Serving.Number != first.Entry.Number {
+		t.Fatalf("expected Amara at the counter, got %+v", view.Serving)
+	}
+	if len(view.Waiting) != 1 || view.Waiting[0].Number != second.Entry.Number || len(view.Skipped) != 0 {
+		t.Fatalf("expected Kofi still waiting and nobody skipped, got waiting %+v skipped %+v", view.Waiting, view.Skipped)
+	}
+}

@@ -16,8 +16,12 @@ var (
 	// ErrEntryNotActive is a stale dashboard, not a broken one: the operator
 	// clicked a row that someone else had already dealt with.
 	ErrEntryNotActive = errors.New("entry is no longer active")
-	ErrUnauthorized   = errors.New("not authorized to operate this queue")
-	ErrInvalidInput   = errors.New("invalid input")
+
+	// ErrRecallExpired is a skipped customer whose window has closed: the
+	// record stays, but the number is no longer theirs to be called back on.
+	ErrRecallExpired = errors.New("too long since this customer was skipped")
+	ErrUnauthorized  = errors.New("not authorized to operate this queue")
+	ErrInvalidInput  = errors.New("invalid input")
 
 	// ErrInvalidCode is the single answer redeem gives to every failure: a code
 	// that never existed, one that has been rotated away, and one belonging to a

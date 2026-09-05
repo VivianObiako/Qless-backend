@@ -158,6 +158,8 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "operator_not_found", "We couldn't find that operator.")
 	case errors.Is(err, queue.ErrEntryNotActive):
 		httpx.WriteError(w, http.StatusConflict, "entry_not_active", "That customer has already been dealt with.")
+	case errors.Is(err, queue.ErrRecallExpired):
+		httpx.WriteError(w, http.StatusConflict, "recall_expired", "It's been too long since they were skipped. They can rejoin for a new number.")
 	case errors.Is(err, queue.ErrNotInQueue):
 		httpx.WriteError(w, http.StatusNotFound, "not_in_queue", "Your previous queue position is no longer active.")
 	case errors.Is(err, queue.ErrQueuePaused):

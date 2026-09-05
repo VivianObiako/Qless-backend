@@ -183,13 +183,14 @@ func TestSkippedCustomerKeepsTheirRecordAndCanRejoin(t *testing.T) {
 }
 
 // Acting on a row someone else already dealt with is a stale dashboard, not a
-// broken one, and it says so.
+// broken one, and it says so. Attended rather than skipped: a skipped
+// customer stays callable for a while, and that is a different answer.
 func TestActingOnAFinishedEntryIsRefusedClearly(t *testing.T) {
 	op := newOperator(t, "Stale Click Shop")
 	before := op.joinAll("Vivian")
 	target := before.Waiting[0].ID
 
-	op.mustDo(http.MethodPost, "/entries/"+target+"/skip", nil)
+	op.mustDo(http.MethodPost, "/entries/"+target+"/attend", nil)
 
 	for _, action := range []string{"serve", "attend", "skip"} {
 		res := op.do(http.MethodPost, "/entries/"+target+"/"+action, nil)
@@ -432,7 +433,7 @@ func TestHistoryHoldsOnlyFinishedEntries(t *testing.T) {
 func TestHistoryRejectsANonsenseLimit(t *testing.T) {
 	op := newOperator(t, "History Limit Shop")
 
-	for _, limit := range []string{"0", "-1", "201", "many"} {
+	for _, limit := range []string{"0", "-1", "1001", "many"} {
 		res := op.do(http.MethodGet, "/history?limit="+limit, nil)
 		if res.status != http.StatusBadRequest {
 			t.Errorf("limit=%s: status %d, want 400; body %s", limit, res.status, res.body)

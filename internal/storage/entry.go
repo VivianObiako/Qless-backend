@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, presence, presence_at`
+const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, presence, presence_at, walk_in`
 
 func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var e queue.Entry
@@ -18,7 +19,7 @@ func scanEntry(row pgx.Row) (queue.Entry, error) {
 	err := row.Scan(
 		&e.ID, &e.QueueID, &e.Number, &e.CustomerName, &status,
 		&e.JoinedAt, &e.StartedAt, &e.CompletedAt,
-		&presence, &e.PresenceAt,
+		&presence, &e.PresenceAt, &e.WalkIn,
 	)
 	if err != nil {
 		return queue.Entry{}, err
@@ -59,6 +60,17 @@ func (s *Store) SetPresence(ctx context.Context, queueID, customerTokenHash stri
 // A customer who already holds an active entry gets that entry back alongside
 // ErrAlreadyJoined rather than a duplicate place in line.
 func (s *Store) Join(ctx context.Context, queueID, customerName, customerTokenHash string) (queue.Entry, error) {
+	return s.join(ctx, queueID, customerName, customerTokenHash, false)
+}
+
+// AddWalkIn places somebody in the queue from the counter. The token hash is
+// for a token nobody holds, so the entry is a number and a name and nothing a
+// phone can recover; the flag lets the counter say as much.
+func (s *Store) AddWalkIn(ctx context.Context, queueID, customerName, discardedTokenHash string) (queue.Entry, error) {
+	return s.join(ctx, queueID, customerName, discardedTokenHash, true)
+}
+
+func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHash string, walkIn bool) (queue.Entry, error) {
 	var entry queue.Entry
 
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
@@ -109,10 +121,10 @@ func (s *Store) Join(ctx context.Context, queueID, customerName, customerTokenHa
 		}
 
 		entry, err = scanEntry(tx.QueryRow(ctx,
-			`INSERT INTO queue_entries (queue_id, number, customer_name, customer_token_hash)
-			 VALUES ($1, $2, $3, $4)
+			`INSERT INTO queue_entries (queue_id, number, customer_name, customer_token_hash, walk_in)
+			 VALUES ($1, $2, $3, $4, $5)
 			 RETURNING `+entryColumns,
-			queueID, nextNumber, customerName, customerTokenHash,
+			queueID, nextNumber, customerName, customerTokenHash, walkIn,
 		))
 		if err != nil {
 			return fmt.Errorf("insert entry: %w", err)
@@ -254,7 +266,16 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 			result.Served = &target
 			return nil
 		}
-		if target.Status != queue.EntryWaiting {
+
+		// A skipped customer can be called back with the number they had,
+		// for a while. After that the record is history, not a place in line.
+		switch target.Status {
+		case queue.EntryWaiting:
+		case queue.EntrySkipped:
+			if target.CompletedAt == nil || time.Since(*target.CompletedAt) > queue.RecallWindow {
+				return queue.ErrRecallExpired
+			}
+		default:
 			return queue.ErrEntryNotActive
 		}
 
@@ -266,12 +287,17 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 
 		actorType, operatorID := actedBy(actor)
 		served, err := scanEntry(tx.QueryRow(ctx,
-			`UPDATE queue_entries SET status = 'SERVING', started_at = now(),
+			`UPDATE queue_entries SET status = 'SERVING', started_at = now(), completed_at = NULL,
 			        acted_by_type = $2::principal_type, acted_by_operator_id = $3
 			 WHERE id = $1
 			 RETURNING `+entryColumns,
 			entryID, actorType, operatorID,
 		))
+		if isUniqueViolation(err, "one_active_entry_per_number") {
+			// The queue was reset since they were skipped and their number
+			// has been handed out again. Nothing to recall them to.
+			return queue.ErrRecallExpired
+		}
 		if err != nil {
 			return fmt.Errorf("serve entry: %w", err)
 		}
@@ -410,7 +436,7 @@ func (s *Store) History(ctx context.Context, queueID string, limit int) ([]queue
 		err := rows.Scan(
 			&entry.ID, &entry.QueueID, &entry.Number, &entry.CustomerName, &status,
 			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt,
-			&presence, &entry.PresenceAt,
+			&presence, &entry.PresenceAt, &entry.WalkIn,
 			&actedByType, &operatorName,
 		)
 		if err != nil {
@@ -504,6 +530,34 @@ func attendCurrent(ctx context.Context, tx pgx.Tx, queueID string, actor queue.A
 		return nil, fmt.Errorf("attend current: %w", err)
 	}
 	return &attended, nil
+}
+
+// ListRecentlySkipped returns the customers stood down inside the recall
+// window, most recent first: the ones the counter can still call back.
+func (s *Store) ListRecentlySkipped(ctx context.Context, queueID string) ([]queue.Entry, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+entryColumns+` FROM queue_entries
+		 WHERE queue_id = $1 AND status = 'SKIPPED' AND completed_at > now() - $2::interval
+		 ORDER BY completed_at DESC`,
+		queueID, queue.RecallWindow,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list recently skipped: %w", err)
+	}
+	defer rows.Close()
+
+	entries := []queue.Entry{}
+	for rows.Next() {
+		entry, err := scanEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan skipped entry: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate skipped entries: %w", err)
+	}
+	return entries, nil
 }
 
 // ListActiveEntries returns the customer being served plus everyone waiting,
