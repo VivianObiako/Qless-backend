@@ -784,3 +784,15 @@ drawn. Inputs read at 16px under a finger because iOS zooms into anything
 smaller, and nothing is said only on hover because a tablet has none. The
 counter's two columns follow the content's width, not the window's: a 12.9"
 iPad upright has the sidebar and not the room.
+
+**Migrations take a lock.** CI's first run on a fresh database had two test
+packages migrating at once, each finding the schema empty and both trying to
+build it. `Migrate` now holds a Postgres advisory lock on its own connection
+for the duration; the second arrival waits and finds nothing to do. It is
+the same guard a deploy needs the day it runs two instances.
+
+**Seats will be rows, not a count.** Recorded ahead of the work so the
+choice is not re-made at the keyboard: a chair has a name a customer is sent
+to, can be closed for the afternoon, and can carry an operator later. Every
+existing queue gets one seat called "Counter", so a one-seat shop never sees
+the difference.

@@ -5,16 +5,22 @@ Judgment calls get written up in `DECISIONS.md` as they are made.
 
 ## Where things stand
 
-Phases 0–6, 8, 10, 11 and 12 are done. Phase 9 (the edge drawer) was
-overtaken by the **Paper** redesign, which replaced the whole dashboard frame
-with a sidebar; see phase 10 and `DECISIONS.md` "Direction — Paper". Phase 7
-(documentation) has been done piecemeal as screens changed. Of the original
-audit only multi-seat queues remains, in the backlog.
+**Merged and live.** Both branches — web `redesign/paper` and API
+`feature/presence` — are merged into `main` and deployed: the web app on
+Vercel at qless-indol.vercel.app, the API on Render with Neon behind it and
+Web Push turned on. Phases 0–6, 8, 10, 11 and 12 are done and were walked
+through on production on 5 September 2026 (create, join, presence, the
+counter's three stages, history, the display, archive). Phase 9 (the edge
+drawer) was overtaken by the Paper redesign; phase 7 (documentation) has been
+done piecemeal as screens changed. Of the original audit only multi-seat
+queues remains, and it now has a plan below.
 
 Migrations run to **00009**: 00005 records a customer's presence on their
 entry, 00006 flags entries added at the counter as walk-ins, 00007 adds the
 business settings (hold time, pause note, archiving, owner name), 00008
 holds push subscriptions and 00009 records when service actually began.
+Migrations take a Postgres advisory lock, so parallel test packages and
+multi-instance deploys cannot collide.
 
 The names toggle is live end to end: default off, settable per queue, and it
 changes what staff receive on the dashboard, in history and over the socket —
@@ -37,8 +43,8 @@ Running the stack locally (two repositories side by side):
   will fight over the build cache.
 - Checks: `npx tsc --noEmit` and `npx eslint` in `Qless`; `go test ./...` in
   `Qless-backend`.
-- Branches at the time of writing: web `redesign/paper`, API
-  `feature/presence`.
+- Work happens on branches and lands on `main` through pull requests; CI
+  runs the Go suite against a service Postgres and builds the Docker image.
 - Push is optional locally: `go run ./cmd/vapid` prints a key pair for the
   API's `.env`; without one the pass keeps its in-page nudge.
 
@@ -716,39 +722,175 @@ which stays in the backlog because it changes the socket contract.
 - [x] **12.6 The counter's finder is parked.** Not rendered for now — a
       counter of a dozen people does not need one — and kept wired for the
       day a queue is long enough to.
+- [x] **12.7 Release.** CI's first fresh-database run exposed two test
+      packages migrating at once; `database.Migrate` now serialises on an
+      advisory lock. Render's blueprint declares the three VAPID variables.
+      Both repositories merged to `main` and walked through live.
+
+---
+
+## Plan — multi-seat queues
+
+The one audit item left, and the biggest structural change since owners. It
+is a plan, not a commitment: nothing below is built.
+
+### Goal
+
+Let several service points — chairs, counters, exam rooms — draw from one
+waiting line, so a three-chair barbershop is one queue with three people
+being served, not three queues that split the line.
+
+### Context
+
+- `UNIQUE INDEX one_serving_per_queue ON queue_entries (queue_id) WHERE
+  status = 'SERVING'` (00001) is the invariant everything rests on.
+  `attendCurrent` (storage/entry.go) stands down "the" person at the counter
+  because there is exactly one.
+- `PublicState.servingNumber` is a single number. Every customer board, the
+  wall display, the pass's "you're up after 14" line and the push ladder read
+  it. `EstimateWait(peopleAhead, minutes)` assumes one server.
+- The counter card (`Counter.tsx`, `AtTheCounter`) is one card with three
+  stages. `served_at`, hold time, recall and standing down all key off that
+  one entry.
+- Operators (00004) are assigned to queues, not to places within them.
+
+### Approach
+
+**Seats are rows, not a count.** A `seats` table (id, queue_id, name,
+position, active) rather than `queues.seat_count`: a chair has a name the
+customer is sent to, can be taken out of service for the afternoon, and can
+carry an operator later. Every existing queue gets one seat, "Counter", in
+the migration, so nothing changes for a one-seat shop and the single-seat
+screens stay exactly as they are.
+
+**The invariant moves one level down.** `queue_entries.seat_id`, and the
+index becomes one SERVING per seat. Standing down, recall, `served_at`, hold
+time and the overdue nudge all become per seat; the rules do not change, they
+multiply.
+
+**Serve next takes a seat.** `POST …/next` and `…/serve` accept `{seatId}`;
+with one seat it is implied, so the current clients keep working. An operator
+picks their seat once on the counter and the device remembers it; an owner
+running the whole floor sees every seat.
+
+**The public contract grows, it does not break.** `PublicState` gains
+`serving: [{number, seat}]` and `seats: [{id, name}]`; `servingNumber` stays
+as the most recently called number so old boards and the push ladder keep
+working until they are updated. The estimate divides by active seats:
+`ceil(ahead / seats) × minutes`, using the measured figure as now.
+
+**Customers are sent somewhere.** The pass's turn screen says "Go to Chair
+2"; the display lists the numbers being served with their seat names; push
+says the seat.
+
+**Decided against.** A seat count with no names (customers need somewhere to
+go); one queue per chair (splits the line, which is the whole point);
+per-seat queues joined by a "next available" router (two concepts where one
+will do).
+
+### Steps
+
+1. **Migration 00010.** `seats` table; `seat_id` on `queue_entries`; replace
+   `one_serving_per_queue` with `one_serving_per_seat`; backfill one seat per
+   queue and point every SERVING entry at it. *API: migrations, storage.*
+2. **Model and storage.** `Seat` type; `ServeNext`/`ServeEntry` take a seat;
+   `attendCurrent` stands down that seat's entry; `ListActiveEntries`
+   carries `seatId`; `MeasuredService`/`Arrival` unchanged. *API: queue,
+   storage, api handlers, tests.*
+3. **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
+   kept; `EstimateWait` gains a seat divisor; `EstimateTable` follows.
+   Customer view and push messages carry the seat. *API: queue/estimate.go,
+   views.go, push.go, tests.*
+4. **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
+   name, order, active. Settings screen gains a "Seats" section. *API, web
+   settings.*
+5. **The counter.** One card per active seat, each with the three stages;
+   an operator's seat picker in the personal menu, remembered per device;
+   Serve next on a card calls to that seat; Call now asks which seat when
+   more than one is free. *Web: Counter.tsx, OperatorDashboard.tsx,
+   useOperatorQueue.ts.*
+6. **The customer side.** Turn screen names the seat; the board shows every
+   number being served; the pass's "up after N" reads from `serving[]`.
+   *Web: TicketPass.tsx, Board.tsx, lib/board.ts.*
+7. **The wall.** Serving numbers side by side with seat names under them,
+   sized by how many; up-next stays. *Web: DisplayBoard.tsx.*
+8. **History and stats.** Seat column, per-seat measured service, arrival
+   unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.*
+9. **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
+   Playwright scenario for a two-seat day.
+
+### Risks and open questions
+
+- *The socket contract.* Anything reading `servingNumber` keeps working, but
+  a board that ignores `serving[]` shows one number where three are being
+  served. Ship the API first, then the clients, and keep `servingNumber`
+  until every surface reads the list.
+- *The estimate becomes optimistic.* Three seats where one barber is at
+  lunch quotes a third of the real wait. Inactive seats must drop out of the
+  divisor, which is why seats have an `active` flag and the counter needs a
+  one-tap "close this chair".
+- *Which seat does Call now use?* With one free seat it is implied; with
+  several the operator has to be asked, or bound to one. Binding operators to
+  seats is the cleaner answer and is a day of its own.
+- *Display real estate.* Six numbers at wall size do not fit; above four the
+  board needs a different composition (a list, not a row).
+- *Push and the pass* should say the seat, which means the seat name is public.
+  Fine for "Chair 2"; owners naming seats after staff should know it shows.
 
 ---
 
 ## Backlog — not scheduled
 
 Real features, deliberately not in the current plan. Each needs its own plan
-before it is started.
+before it is started. Multi-seat queues, the largest, has one above.
 
-- **Multi-seat queues.** Several service points — chairs, counters, exam rooms —
-  drawing from one waiting line, so more than one customer is being served at
-  once. This is not a UI change: `UNIQUE INDEX (queue_id) WHERE status =
-  'SERVING'` (`api/migrations/00001_init.sql:34`) is the invariant the whole
-  system rests on, and 3.1's "serving one customer attends whoever was at the
-  counter" is only true because there is one counter. It needs a migration, a
-  seat concept an operator can be bound to, a plural `servingNumber` on the
-  public payload — which changes the socket contract, the customer's board and
-  the display board's whole composition — and a divisor in `EstimateWait`
-  (`api/internal/queue/estimate.go:25`), which otherwise quotes every customer
-  N times their real wait. The obvious workaround, one queue per chair, does
-  not work: it splits the waiting line, which is the entire point.
-- **Deleting a queue.** The permissions table promised this from the first draft
-  and no endpoint was ever written; 7.5 struck the word rather than leave a
-  table making a promise. It is a real gap — an owner who mistypes a queue name
-  at create is stuck with it, and `make seed` leaves one behind on every run.
-  Not a `DELETE` though: entries hang off queues and history is the one thing
-  this product never destroys, so it wants an archive flag that hides a queue
-  from `/queues` and refuses new joins while leaving its history resolvable —
-  closer to how revoking an operator works than to a delete.
-- **Services.** Different queues for different things — a haircut and a beard
-  trim off one roster. Designed for since phase 0: one table, one nullable
-  `service_id` on `queues`, one screen, no change to how access is checked.
-  Distinct from multi-seat, which is parallel capacity on *one* queue and is
-  the harder of the two.
+**Next in line**
+
+- **Operator seat binding.** Follows multi-seat: an operator is assigned a
+  seat and their counter shows only it.
+- **Playwright for the new flows.** The suite covers customer, identity and
+  privacy from before Paper; presence, walk-ins, recall, hold time, archive
+  and the three-stage counter have backend tests only.
+- **Socket rate limit tuning.** One address opening many boards (a shop with
+  several tablets behind one router) can trip the per-address socket limit
+  and sit on "Reconnecting…". Raise it, or key it by queue as well.
+- **A "not you?" link on a recovered ticket**, for a shared phone that
+  reopens somebody else's place.
+- **Close a chair for the afternoon** — a seat's `active` flag, once seats
+  exist.
+
+**Business**
+
+- **Services.** Different queues for different things — a haircut and a
+  beard trim off one roster. Designed for since phase 0: one table, one
+  nullable `service_id` on `queues`, one screen. Distinct from multi-seat,
+  which is parallel capacity on one queue.
+- **Opening hours and scheduled pauses.** Close at 6 and open at 9 without a
+  tap; a lunch pause that resumes itself; the new-day prompt becomes
+  automatic where the owner wants it.
+- **A day report.** Busiest hour, no-show rate, average wait by hour,
+  emailed or downloadable; the history table has the data.
+- **Multiple locations under one owner.** Designed around, not built; a
+  `location` on queues and a switcher group.
+- **Data retention.** Names age out of history after a period the owner
+  sets; numbers and timings stay.
+
+**Customer**
+
+- **Join kiosk.** The join page in a full-screen mode for an iPad at the
+  door, resetting after each customer, for shops that do not want to rely on
+  scanning.
+- **Languages.** The pass in the customer's language; the counter in the
+  shop's.
+- **Party size** as an optional field switched on in settings, for
+  restaurants; the estimate counts seats, not people.
+- **SMS fallback** for customers who refuse notifications or whose phone
+  cannot push. Costs money per message and needs a number at join; revisit if
+  push adoption is low.
+
+**Considered and set aside** — bookings and appointments (a different
+product), customer accounts and ratings (the absence of accounts is the
+pitch), custom slugs (the slug is printed on a door).
 
 ---
 
