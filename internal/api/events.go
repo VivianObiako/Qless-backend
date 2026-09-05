@@ -111,4 +111,8 @@ func (s *Server) publish(ctx context.Context, queueID string, eventType EventTyp
 		return
 	}
 	s.hub.Publish(queueID, event)
+
+	// After the frame, never before it: a phone with the pass open gets the
+	// screen first and the nudge is for the one that is put away.
+	go s.notifyPush(queueID)
 }

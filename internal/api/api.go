@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vivianobiako/qless/api/internal/httpx"
+	"github.com/vivianobiako/qless/api/internal/push"
 	"github.com/vivianobiako/qless/api/internal/queue"
 	"github.com/vivianobiako/qless/api/internal/realtime"
 	"github.com/vivianobiako/qless/api/internal/storage"
@@ -31,6 +32,10 @@ type Server struct {
 	redeemLimiter *httpx.Limiter
 	codeLimiter   *httpx.Limiter
 	redeemLockout *httpx.Lockout
+
+	// Nil-safe: a server without push configured answers that it has none.
+	push      *push.Sender
+	webOrigin string
 }
 
 func NewServer(store *storage.Store) *Server {

@@ -13,6 +13,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/api"
 	"github.com/vivianobiako/qless/api/internal/config"
 	"github.com/vivianobiako/qless/api/internal/database"
+	"github.com/vivianobiako/qless/api/internal/push"
 	"github.com/vivianobiako/qless/api/internal/storage"
 )
 
@@ -45,9 +46,16 @@ func run() error {
 	}
 	defer store.Close()
 
+	sender := push.New(cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
+	if sender.Enabled() {
+		slog.Info("push notifications on", "subject", cfg.VAPIDSubject)
+	} else {
+		slog.Info("push notifications off: set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY (go run ./cmd/vapid)")
+	}
+
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.NewServer(store).Routes(cfg.AllowedOrigins...),
+		Handler:           api.NewServer(store).WithPush(sender, cfg.WebOrigin()).Routes(cfg.AllowedOrigins...),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

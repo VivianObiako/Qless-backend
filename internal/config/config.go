@@ -13,6 +13,21 @@ type Config struct {
 	DatabaseURL    string
 	Port           string
 	AllowedOrigins []string
+
+	// Push is optional. Without a key pair the API runs and the pass keeps
+	// its in-page nudge. Generate one with `go run ./cmd/vapid`.
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string
+}
+
+// WebOrigin is where a tapped notification lands: the first allowed origin,
+// which in every deployment is the web app itself.
+func (c Config) WebOrigin() string {
+	if len(c.AllowedOrigins) == 0 {
+		return ""
+	}
+	return c.AllowedOrigins[0]
 }
 
 // Load reads configuration from the environment, first pulling in a .env file
@@ -25,6 +40,10 @@ func Load() (Config, error) {
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		Port:           envOr("PORT", "8080"),
 		AllowedOrigins: splitOrigins(envOr("ALLOWED_ORIGIN", "http://localhost:3000")),
+
+		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:    envOr("VAPID_SUBJECT", "mailto:hello@qless.app"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is not set (copy .env.example to .env)")
