@@ -12,10 +12,23 @@ services:
     plan: free
     healthCheckPath: /healthz
     envVars:
-      # Neon pooled connection string. Needs sslmode=require.
+      # Neon direct (unpooled) connection string. Needs sslmode=require.
       - key: DATABASE_URL
         sync: false
-      # Comma-separated web origins: the Vercel production domain, plus any
-      # preview domain that should be able to reach this API.
+      # Comma-separated web origins: the Vercel production domain first, then
+      # any preview domain that should be able to reach this API. The first
+      # one is also where a tapped push notification lands.
       - key: ALLOWED_ORIGIN
+        sync: false
+      # Web Push. Optional: without a key pair the API runs and the customer's
+      # pass nudges from the page instead. Mint a pair once with
+      # `go run ./cmd/vapid`; the private key is a secret, and rotating it
+      # invalidates every existing subscription.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # A mailto: or https: contact sent to the push services with each
+      # notification, so they can reach you if the server misbehaves.
+      - key: VAPID_SUBJECT
         sync: false
