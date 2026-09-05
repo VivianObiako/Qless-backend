@@ -214,6 +214,10 @@ forgetting to be wrapped in one.
 
 **Events:** `QUEUE_UPDATED · CUSTOMER_JOINED · CUSTOMER_LEFT · CUSTOMER_SKIPPED · CUSTOMER_SERVED · CUSTOMER_ATTENDED · CUSTOMER_PRESENCE · QUEUE_PAUSED · QUEUE_RESUMED · QUEUE_CLOSED · QUEUE_RESET`
 
+**Standing down.** Calling anybody while somebody is at the counter stands
+that person down: attended if their service had begun (`servedAt` set),
+skipped and held if it had not.
+
 **Skip is not final.** A skipped entry keeps its number for the queue's
 `holdMinutes` and can be served (recalled) in that window. After it the number
 may have been reissued, and the call is refused with `recall_expired` (409).

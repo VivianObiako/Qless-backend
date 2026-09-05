@@ -768,3 +768,11 @@ they say here at the counter, or when a skipped number is recalled, and by
 one tap otherwise. Nothing asks staff to think about it in the common case.
 The gap between the two moments, how long people take to turn up, is a
 number a shop has never had and the right one to set a hold time against.
+
+**One thing at a time at the counter.** The card offers only what its stage
+allows: Serve next when the counter is empty, Start serving or Skip and hold
+once somebody is called, Done once they are being served. Serve next never
+has anyone to finish implicitly. Calling a row while somebody is being
+served is disabled, with the reason on hover; calling a row while the called
+person has not turned up stands them down with their number held. Moving on
+from a no-show never writes "served" into their history.
