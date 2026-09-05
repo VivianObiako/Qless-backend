@@ -119,23 +119,37 @@ func TestServeSpecificCustomerLeavesEveryoneElseInPlace(t *testing.T) {
 
 // There is one counter, and the database enforces it. Calling a second customer
 // closes out the first rather than putting two people at it.
-func TestServingASecondCustomerAttendsTheFirst(t *testing.T) {
+// There is one counter, so calling somebody stands down whoever is there.
+// Which way depends on whether service had begun: a person being served is
+// attended, and a person who was called and never turned up is held, not
+// written into history as served.
+func TestServingASecondCustomerStandsDownTheFirst(t *testing.T) {
 	op := newOperator(t, "One Counter Shop")
-	before := op.joinAll("Vivian", "John")
+	before := op.joinAll("Vivian", "John", "Ada")
 
+	// Vivian is called and never arrives; calling John holds her.
 	op.mustDo(http.MethodPost, "/entries/"+before.Waiting[0].ID+"/serve", nil)
 	after := op.mustDo(http.MethodPost, "/entries/"+before.Waiting[1].ID+"/serve", nil)
-
 	if after.Serving == nil || after.Serving.Name != "John" {
 		t.Fatalf("serving = %+v, want John", after.Serving)
 	}
-	if after.WaitingCount != 0 {
-		t.Errorf("waiting count = %d, want 0", after.WaitingCount)
+	if after.WaitingCount != 1 {
+		t.Errorf("waiting count = %d, want 1", after.WaitingCount)
+	}
+	history := op.history()
+	if len(history) != 1 || history[0].Name != "Vivian" || history[0].Status != "SKIPPED" {
+		t.Errorf("history = %+v, want Vivian skipped and held", history)
 	}
 
-	history := op.history()
-	if len(history) != 1 || history[0].Name != "Vivian" || history[0].Status != "ATTENDED" {
-		t.Errorf("history = %+v, want Vivian attended", history)
+	// John's service begins; calling Ada finishes him.
+	op.mustDo(http.MethodPost, "/entries/"+after.Serving.ID+"/start", nil)
+	after = op.mustDo(http.MethodPost, "/entries/"+before.Waiting[2].ID+"/serve", nil)
+	if after.Serving == nil || after.Serving.Name != "Ada" {
+		t.Fatalf("serving = %+v, want Ada", after.Serving)
+	}
+	history = op.history()
+	if len(history) != 2 || history[0].Name != "John" || history[0].Status != "ATTENDED" {
+		t.Errorf("history = %+v, want John attended first", history)
 	}
 }
 

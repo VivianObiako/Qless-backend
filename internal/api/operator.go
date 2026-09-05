@@ -72,9 +72,12 @@ func (s *Server) serveNext(w http.ResponseWriter, r *http.Request) {
 	// carries a full snapshot, so rather than broadcast twice we name the fact
 	// that matters to whoever is listening: someone new was called, or — when
 	// the queue has emptied — the last customer was finished with.
-	if result.Served != nil {
+	switch {
+	case result.Served != nil:
 		s.publish(r.Context(), q.ID, EventCustomerServed)
-	} else if result.Attended != nil {
+	case result.Attended != nil && result.Attended.Status == queue.EntrySkipped:
+		s.publish(r.Context(), q.ID, EventCustomerSkipped)
+	case result.Attended != nil:
 		s.publish(r.Context(), q.ID, EventCustomerAttended)
 	}
 

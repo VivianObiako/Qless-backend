@@ -3,6 +3,8 @@ package api_test
 import (
 	"net/http"
 	"testing"
+
+	"github.com/vivianobiako/qless/api/internal/httpx"
 )
 
 type settingsView struct {
@@ -235,8 +237,14 @@ func TestEstimateSwitchesToMeasuredServiceTimes(t *testing.T) {
 	owner := header{"Authorization", "Bearer " + created.OwnerToken}
 	slug := created.Queue.Slug
 
+	// Everybody says they are here, so being called begins service at once
+	// and moving on finishes them; a no-show is held, not served, and
+	// contributes nothing to the measure.
 	for _, name := range []string{"A", "B", "C", "D", "E", "F", "G"} {
-		client.join(slug, name, "")
+		joined, _ := client.join(slug, name, "")
+		client.do(http.MethodPost, "/api/queues/"+slug+"/presence",
+			mustJSON(t, map[string]string{"presence": "HERE"}),
+			header{httpx.CustomerTokenHeader, joined.CustomerToken})
 	}
 
 	var public struct {

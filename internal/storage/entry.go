@@ -562,10 +562,16 @@ func actedBy(actor queue.Actor) (string, any) {
 	return string(queue.PrincipalOwner), nil
 }
 
+// attendCurrent stands down whoever is at the counter so somebody else can
+// be called. A person whose service had begun is attended; a person who was
+// called and never turned up is skipped, with their number held, so moving
+// on from a no-show never writes "served" into their history.
 func attendCurrent(ctx context.Context, tx pgx.Tx, queueID string, actor queue.Actor) (*queue.Entry, error) {
 	actorType, operatorID := actedBy(actor)
 	attended, err := scanEntry(tx.QueryRow(ctx,
-		`UPDATE queue_entries SET status = 'ATTENDED', completed_at = now(),
+		`UPDATE queue_entries
+		    SET status = CASE WHEN served_at IS NULL THEN 'SKIPPED' ELSE 'ATTENDED' END::entry_status,
+		        completed_at = now(),
 		        acted_by_type = $2::principal_type, acted_by_operator_id = $3
 		 WHERE queue_id = $1 AND status = 'SERVING'
 		 RETURNING `+entryColumns,
