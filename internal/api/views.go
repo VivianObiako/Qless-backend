@@ -61,6 +61,10 @@ type OperatorView struct {
 	// show the figure the estimates are using next to the one that was typed.
 	Measured queue.ServiceMeasure `json:"measured"`
 
+	// Arrival is how long people have been taking to turn up once called —
+	// the number a hold time should be set against.
+	Arrival queue.ServiceMeasure `json:"arrival"`
+
 	// LastActivityAt is when anything last happened here, so a dashboard
 	// opened the next morning can ask whether to start a new day.
 	LastActivityAt *time.Time `json:"lastActivityAt"`
@@ -99,6 +103,11 @@ func (s *Server) operatorView(
 	}
 	serviceMinutes := q.ServiceMinutesIn(measured)
 
+	arrival, err := s.store.MeasuredArrival(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+
 	lastActivity, err := s.store.LastActivity(ctx, q.ID)
 	if err != nil {
 		return OperatorView{}, err
@@ -109,6 +118,7 @@ func (s *Server) operatorView(
 		Waiting:        []WaitingRow{},
 		ShowsNames:     withNames,
 		Measured:       measured,
+		Arrival:        arrival,
 		LastActivityAt: lastActivity,
 	}
 

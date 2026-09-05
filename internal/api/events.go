@@ -22,6 +22,7 @@ const (
 	EventCustomerSkipped  EventType = "CUSTOMER_SKIPPED"
 	EventCustomerServed   EventType = "CUSTOMER_SERVED"
 	EventCustomerAttended EventType = "CUSTOMER_ATTENDED"
+	EventCustomerStarted  EventType = "CUSTOMER_STARTED"
 	EventQueuePaused      EventType = "QUEUE_PAUSED"
 	EventQueueResumed     EventType = "QUEUE_RESUMED"
 	EventQueueClosed      EventType = "QUEUE_CLOSED"

@@ -205,27 +205,44 @@ func (s *Store) SetArchived(ctx context.Context, queueID string, archived bool) 
 	return q, nil
 }
 
-// MeasuredService averages the last ten real start-to-finish times from the
-// past twelve hours. Only entries that were called and then finished count:
-// somebody marked as served straight from the list never had a service time.
+// MeasuredService averages the last ten real service times from the past
+// twelve hours: from when service began (or, for an entry nobody marked,
+// from the call) to done. Only entries that were called and then finished
+// count: somebody marked as served straight from the list never had one.
 func (s *Store) MeasuredService(ctx context.Context, queueID string) (queue.ServiceMeasure, error) {
+	return s.measure(ctx, queueID,
+		`SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(served_at, started_at))) / 60), 0), COUNT(*)
+		   FROM (SELECT started_at, served_at, completed_at
+		           FROM queue_entries
+		          WHERE queue_id = $1 AND status = 'ATTENDED'
+		            AND started_at IS NOT NULL AND completed_at > COALESCE(served_at, started_at)
+		            AND completed_at > now() - interval '12 hours'
+		          ORDER BY completed_at DESC
+		          LIMIT 10) recent`)
+}
+
+// MeasuredArrival averages how long the last ten customers took to turn up
+// after being called. Only entries where service was marked as begun count;
+// it is the evidence for tuning the hold time.
+func (s *Store) MeasuredArrival(ctx context.Context, queueID string) (queue.ServiceMeasure, error) {
+	return s.measure(ctx, queueID,
+		`SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (served_at - started_at)) / 60), 0), COUNT(*)
+		   FROM (SELECT started_at, served_at
+		           FROM queue_entries
+		          WHERE queue_id = $1 AND status = 'ATTENDED'
+		            AND started_at IS NOT NULL AND served_at IS NOT NULL AND served_at >= started_at
+		            AND completed_at > now() - interval '12 hours'
+		          ORDER BY completed_at DESC
+		          LIMIT 10) recent`)
+}
+
+func (s *Store) measure(ctx context.Context, queueID, query string) (queue.ServiceMeasure, error) {
 	var (
 		minutes float64
 		sample  int
 	)
-	err := s.pool.QueryRow(ctx,
-		`SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60), 0), COUNT(*)
-		   FROM (SELECT started_at, completed_at
-		           FROM queue_entries
-		          WHERE queue_id = $1 AND status = 'ATTENDED'
-		            AND started_at IS NOT NULL AND completed_at > started_at
-		            AND completed_at > now() - interval '12 hours'
-		          ORDER BY completed_at DESC
-		          LIMIT 10) recent`,
-		queueID,
-	).Scan(&minutes, &sample)
-	if err != nil {
-		return queue.ServiceMeasure{}, fmt.Errorf("measure service time: %w", err)
+	if err := s.pool.QueryRow(ctx, query, queueID).Scan(&minutes, &sample); err != nil {
+		return queue.ServiceMeasure{}, fmt.Errorf("measure: %w", err)
 	}
 	rounded := int(math.Round(minutes))
 	if sample > 0 && rounded < 1 {

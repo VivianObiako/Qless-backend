@@ -10,7 +10,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, presence, presence_at, walk_in`
+const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in`
 
 func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var e queue.Entry
@@ -18,7 +18,7 @@ func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var presence *string
 	err := row.Scan(
 		&e.ID, &e.QueueID, &e.Number, &e.CustomerName, &status,
-		&e.JoinedAt, &e.StartedAt, &e.CompletedAt,
+		&e.JoinedAt, &e.StartedAt, &e.CompletedAt, &e.ServedAt,
 		&presence, &e.PresenceAt, &e.WalkIn,
 	)
 	if err != nil {
@@ -37,7 +37,10 @@ func scanEntry(row pgx.Row) (queue.Entry, error) {
 // about, which is the same answer Leave gives.
 func (s *Store) SetPresence(ctx context.Context, queueID, customerTokenHash string, presence queue.Presence) (queue.Entry, error) {
 	entry, err := scanEntry(s.pool.QueryRow(ctx,
-		`UPDATE queue_entries SET presence = $3::entry_presence, presence_at = now()
+		`UPDATE queue_entries
+		    SET presence = $3::entry_presence, presence_at = now(),
+		        served_at = CASE WHEN status = 'SERVING' AND $3 = 'HERE'
+		                         THEN COALESCE(served_at, now()) ELSE served_at END
 		 WHERE queue_id = $1 AND customer_token_hash = $2 AND status IN ('WAITING', 'SERVING')
 		 RETURNING `+entryColumns,
 		queueID, customerTokenHash, string(presence),
@@ -215,6 +218,7 @@ func (s *Store) ServeNext(ctx context.Context, queueID string, actor queue.Actor
 		actorType, operatorID := actedBy(actor)
 		served, err := scanEntry(tx.QueryRow(ctx,
 			`UPDATE queue_entries SET status = 'SERVING', started_at = now(),
+			        served_at = CASE WHEN presence = 'HERE' THEN now() END,
 			        acted_by_type = $2::principal_type, acted_by_operator_id = $3
 			 WHERE id = (
 				 SELECT id FROM queue_entries
@@ -293,6 +297,7 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 		actorType, operatorID := actedBy(actor)
 		served, err := scanEntry(tx.QueryRow(ctx,
 			`UPDATE queue_entries SET status = 'SERVING', started_at = now(), completed_at = NULL,
+			        served_at = CASE WHEN status = 'SKIPPED' OR presence = 'HERE' THEN now() END,
 			        acted_by_type = $2::principal_type, acted_by_operator_id = $3
 			 WHERE id = $1
 			 RETURNING `+entryColumns,
@@ -313,6 +318,34 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 		return ServeResult{}, err
 	}
 	return result, nil
+}
+
+// StartServing marks the moment service began for the person at the counter,
+// for the case nothing inferred it: they walked up without touching their
+// phone. Idempotent, so a second tap changes nothing.
+func (s *Store) StartServing(ctx context.Context, queueID, entryID string) (queue.Entry, error) {
+	entry, err := scanEntry(s.pool.QueryRow(ctx,
+		`UPDATE queue_entries SET served_at = COALESCE(served_at, now())
+		 WHERE id = $2 AND queue_id = $1 AND status = 'SERVING'
+		 RETURNING `+entryColumns,
+		queueID, entryID,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		if err := s.pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM queue_entries WHERE id = $2 AND queue_id = $1)`, queueID, entryID,
+		).Scan(&exists); err != nil {
+			return queue.Entry{}, fmt.Errorf("start serving: %w", err)
+		}
+		if !exists {
+			return queue.Entry{}, queue.ErrEntryNotFound
+		}
+		return queue.Entry{}, queue.ErrEntryNotActive
+	}
+	if err != nil {
+		return queue.Entry{}, fmt.Errorf("start serving: %w", err)
+	}
+	return entry, nil
 }
 
 // AttendEntry closes out one customer as dealt with.
@@ -440,7 +473,7 @@ func (s *Store) History(ctx context.Context, queueID string, limit int) ([]queue
 		)
 		err := rows.Scan(
 			&entry.ID, &entry.QueueID, &entry.Number, &entry.CustomerName, &status,
-			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt,
+			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt, &entry.ServedAt,
 			&presence, &entry.PresenceAt, &entry.WalkIn,
 			&actedByType, &operatorName,
 		)

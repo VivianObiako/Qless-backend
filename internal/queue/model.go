@@ -122,6 +122,11 @@ type Entry struct {
 	StartedAt    *time.Time  `json:"startedAt"`
 	CompletedAt  *time.Time  `json:"completedAt"`
 
+	// ServedAt is when service began, as distinct from StartedAt, which is
+	// when the number was called. Nil until inferred or tapped; the gap is
+	// the customer walking back.
+	ServedAt *time.Time `json:"servedAt"`
+
 	// Nil until the customer says something. Never on a public surface:
 	// PublicState carries numbers, and this rides on entries only.
 	Presence   *Presence  `json:"presence"`

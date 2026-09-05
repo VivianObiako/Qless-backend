@@ -137,6 +137,30 @@ func (s *Server) attendEntry(w http.ResponseWriter, r *http.Request) {
 	s.respondWithView(w, r, q.ID, actor)
 }
 
+// startEntry marks that service has begun for the person at the counter, for
+// the case nothing inferred it. Nothing about the queue's order changes; the
+// counter's clock and the estimate do.
+func (s *Server) startEntry(w http.ResponseWriter, r *http.Request) {
+	q, actor, ok := s.requireQueueAccess(w, r)
+	if !ok {
+		return
+	}
+
+	id, ok := entryID(r)
+	if !ok {
+		writeError(w, queue.ErrEntryNotFound)
+		return
+	}
+
+	if _, err := s.store.StartServing(r.Context(), q.ID, id); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	s.publish(r.Context(), q.ID, EventCustomerStarted)
+	s.respondWithView(w, r, q.ID, actor)
+}
+
 // skipEntry stands a customer down. They keep their record and can rejoin for a
 // fresh number, which is why this is not a deletion.
 func (s *Server) skipEntry(w http.ResponseWriter, r *http.Request) {

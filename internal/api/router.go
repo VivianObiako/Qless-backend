@@ -69,6 +69,7 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("POST /api/queues/{key}/entries", s.addWalkIn)
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/serve", s.serveEntry)
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/attend", s.attendEntry)
+	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/start", s.startEntry)
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/skip", s.skipEntry)
 
 	mux.HandleFunc("POST /api/queues/{key}/pause", s.pauseQueue)
