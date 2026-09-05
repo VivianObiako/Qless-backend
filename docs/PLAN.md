@@ -707,6 +707,15 @@ which stays in the backlog because it changes the socket contract.
       portrait, the sound and live controls head the board where the code
       column stacks, and the chrome and board pad for the notch and home
       indicator (`viewport-fit=cover`).
+- [x] **12.5 History as a working record.** Search by name or exact number,
+      a Walk-ins entry in the outcome filter, and real pagination: ten rows a
+      page by default with 25, 50 and 100 on offer, first / previous / next /
+      last and the page count between. On a desktop the search leads the
+      filter row with the filters at the right; on a tablet it takes a line
+      of its own under the title.
+- [x] **12.6 The counter's finder is parked.** Not rendered for now — a
+      counter of a dozen people does not need one — and kept wired for the
+      day a queue is long enough to.
 
 ---
 
