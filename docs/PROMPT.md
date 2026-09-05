@@ -194,7 +194,7 @@ POST   /api/queues/{key}/pause                  optional {note}        [access]
 POST   /api/queues/{key}/resume                                        [access]
 POST   /api/queues/{key}/next                   serve next             [access]
 POST   /api/queues/{key}/entries                add a walk-in          [access]
-POST   /api/queues/{key}/entries/{entryId}/serve|attend|skip           [access]
+POST   /api/queues/{key}/entries/{entryId}/serve|attend|skip|start     [access]
 GET    /api/queues/{key}/entries                the dashboard's own view [access]
 GET    /api/queues/{key}/history                ?limit= up to 1000, default 200 [access]
 
@@ -221,9 +221,12 @@ The dashboard view lists the entries still inside the window as `skipped`.
 A hold time of zero makes a skip final.
 
 **Estimates learn.** `averageServiceMinutes` is the starting figure. Once the
-last twelve hours hold five real start-to-finish times, every estimate uses
-the average of the last ten, and the public state says which figure it used
-in `serviceMinutes`.
+last twelve hours hold five real service times, every estimate uses the
+average of the last ten, and the public state says which figure it used in
+`serviceMinutes`. A service time runs from `servedAt` — when the person was
+actually at the counter — to done, falling back to the call for an entry
+nobody marked. `servedAt` is inferred from presence and recall, or set by
+`start`.
 
 **Push.** With VAPID keys configured, the server sends each subscribed phone
 the three nudges — close, next, your turn — once per rung, after the frame.

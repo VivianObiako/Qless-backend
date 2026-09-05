@@ -759,3 +759,12 @@ rungs and the pass goes quiet; the in-page notification stays for browsers
 and deployments where push is not on offer. Each phone is told each rung
 once, and a frame that moved nobody sends nothing, so a busy counter does
 not become a busy pocket.
+
+**The call and the service are two moments.** Measuring service from the
+call counted the walk back from the coffee shop, so the estimate drifted
+high on a slow-arriving crowd. `served_at` is set when the person is
+actually there: inferred when someone already marked here is called, when
+they say here at the counter, or when a skipped number is recalled, and by
+one tap otherwise. Nothing asks staff to think about it in the common case.
+The gap between the two moments, how long people take to turn up, is a
+number a shop has never had and the right one to set a hold time against.

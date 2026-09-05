@@ -11,10 +11,10 @@ see phase 10 below and `DECISIONS.md` "Direction — Paper". Phase 7
 (documentation) has been done piecemeal as screens changed; the remaining
 items are listed there.
 
-Migrations run to **00008**: 00005 records a customer's presence on their
+Migrations run to **00009**: 00005 records a customer's presence on their
 entry, 00006 flags entries added at the counter as walk-ins, 00007 adds the
-business settings (hold time, pause note, archiving, owner name) and 00008
-holds push subscriptions.
+business settings (hold time, pause note, archiving, owner name), 00008
+holds push subscriptions and 00009 records when service actually began.
 
 The names toggle is live end to end: default off, settable per queue, and it
 changes what staff receive on the dashboard, in history and over the socket —
@@ -673,6 +673,15 @@ which stays in the backlog because it changes the socket contract.
       subscription taken when the pass's opt-in is granted, and the server
       sending each rung of the ladder once per phone after every frame.
       Optional per deployment: VAPID keys from `go run ./cmd/vapid`.
+- [x] **11.11 When service actually begins** (00009 `served_at`). The call
+      and the service are different moments, and the gap is the customer
+      walking back. `served_at` is inferred — already "here" when called,
+      "here" said at the counter, recalled from a skip — or set by one tap
+      (`POST …/entries/{id}/start`). The measured estimate runs from it, the
+      counter shows "Serving for" once it is set and the overdue nudge stops,
+      and history gains Arrived and Served columns plus an average service
+      figure. The operator view carries `arrival`, the average time to turn
+      up once called, which is what a hold time should be set against.
 
 ---
 
