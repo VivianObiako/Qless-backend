@@ -718,3 +718,44 @@ with nothing yet. An owner adding a queue from the switcher or the queues
 list is one form away from running it, so the form comes to them and lands on
 the new queue's counter. No recovery code is shown there: this browser already
 holds a session, and codes are only issued when a business is created.
+
+**Hold time is one number with three jobs.** The audit asked for a no-show
+nudge on the counter and the product had a fixed recall window; the owner
+asked whether the wait after a call should be a business decision. It is,
+and it is one setting rather than two: how long a called person's place is
+held. The counter suggests a skip after it, a skipped number can be called
+back within it, and the pass prints it. Two numbers would be more precise
+and nobody would set them differently; one number is a promise a shop can
+say out loud. Zero means no hold, and then a skip is final.
+
+**Estimates learn from the day.** The typed service time is a starting
+guess. Once there are five real start-to-finish times in the last twelve
+hours the estimate uses the average of the last ten, and settings says so
+beside the box. Only entries that were called and then finished count: a
+person marked as served straight from the list never had a service time.
+
+**A pause can say when.** "Back at 2:30" is one optional line, shown wherever
+the pause is, and cleared by the resume so it never outlives the break.
+
+**Archive, not delete.** History is the one thing this product never
+destroys, so the nearest thing to deleting a queue is putting it away: it
+closes, leaves the list, refuses joins and refuses to reopen until it is
+restored. The print sheet on the door stops working, which is the point.
+
+**An owner may have a name.** Optional, given at create or from the personal
+menu, seen only by them and on history rows they handled. It is not an
+account; nothing about access changes.
+
+**A new day is a question, not a reset.** The dashboard asks once, when it
+is opened after twelve idle hours with a number to reset. Clearing a queue
+is a business decision and stays behind a confirm.
+
+**The wall chimes when asked.** Two synthesised notes when the serving number
+changes, armed by a tap because browsers require one, remembered per device
+because a wall screen is set up once.
+
+**The nudge leaves the tab.** With push configured the server sends the three
+rungs and the pass goes quiet; the in-page notification stays for browsers
+and deployments where push is not on offer. Each phone is told each rung
+once, and a frame that moved nobody sends nothing, so a busy counter does
+not become a busy pocket.

@@ -176,6 +176,8 @@ POST   /api/access/redeem                       code → role, session, queues
 POST   /api/access/recovery-code/acknowledge    settle a staged code   [owner]
 GET    /api/me/queues                           who am I, what can I open
 POST   /api/sessions/revoke-others              sign out my other devices [owner]
+PATCH  /api/me                                  my display name        [owner]
+GET    /api/push/key                            VAPID public key, 404 when push is off
 
 GET    /api/operators                                                  [owner]
 POST   /api/operators                           create, returns code once [owner]
@@ -187,7 +189,9 @@ POST   /api/queues                              create (recovery code once)
 GET    /api/queues/{key}                        public queue state
 PATCH  /api/queues/{key}                        config                 [owner]
 POST   /api/queues/{key}/close|reset                                   [owner]
-POST   /api/queues/{key}/pause|resume                                  [access]
+POST   /api/queues/{key}/archive|unarchive                             [owner]
+POST   /api/queues/{key}/pause                  optional {note}        [access]
+POST   /api/queues/{key}/resume                                        [access]
 POST   /api/queues/{key}/next                   serve next             [access]
 POST   /api/queues/{key}/entries                add a walk-in          [access]
 POST   /api/queues/{key}/entries/{entryId}/serve|attend|skip           [access]
@@ -197,6 +201,8 @@ GET    /api/queues/{key}/history                ?limit= up to 1000, default 200 
 POST   /api/queues/{key}/join                   join
 GET    /api/queues/{key}/me                     my active entry (customer token)
 POST   /api/queues/{key}/presence               on my way / here / hold (customer token)
+POST   /api/queues/{key}/push                   bind a push subscription (customer token)
+DELETE /api/queues/{key}/push                   forget an endpoint
 POST   /api/queues/{key}/leave                  leave
 
 GET    /api/queues/{key}/ws                     realtime
@@ -208,10 +214,20 @@ forgetting to be wrapped in one.
 
 **Events:** `QUEUE_UPDATED · CUSTOMER_JOINED · CUSTOMER_LEFT · CUSTOMER_SKIPPED · CUSTOMER_SERVED · CUSTOMER_ATTENDED · CUSTOMER_PRESENCE · QUEUE_PAUSED · QUEUE_RESUMED · QUEUE_CLOSED · QUEUE_RESET`
 
-**Skip is not final.** A skipped entry keeps its number for 30 minutes and can
-be served (recalled) in that window. After it the number may have been
-reissued, and the call is refused with `recall_expired` (409). The dashboard
-view lists the entries still inside the window as `skipped`.
+**Skip is not final.** A skipped entry keeps its number for the queue's
+`holdMinutes` and can be served (recalled) in that window. After it the number
+may have been reissued, and the call is refused with `recall_expired` (409).
+The dashboard view lists the entries still inside the window as `skipped`.
+A hold time of zero makes a skip final.
+
+**Estimates learn.** `averageServiceMinutes` is the starting figure. Once the
+last twelve hours hold five real start-to-finish times, every estimate uses
+the average of the last ten, and the public state says which figure it used
+in `serviceMinutes`.
+
+**Push.** With VAPID keys configured, the server sends each subscribed phone
+the three nudges — close, next, your turn — once per rung, after the frame.
+Without keys the key endpoint answers 404 and the pass nudges from the page.
 
 **Walk-ins.** Staff can add a person who has no phone; the entry is flagged
 `walkIn`, joins the back of the line and is served like any other.

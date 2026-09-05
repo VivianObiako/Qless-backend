@@ -36,7 +36,9 @@ via `scripts/init-test-db.sql`, and `make migrate` brings it up to date.
 | `DATABASE_URL` | yes | Managed Postgres needs `sslmode=require` |
 | `TEST_DATABASE_URL` | tests only | Integration tests skip when unset |
 | `PORT` | no | Defaults to `8080`; hosts that inject `PORT` override it |
-| `ALLOWED_ORIGIN` | no | Comma-separated origins for CORS and the WebSocket handshake |
+| `ALLOWED_ORIGIN` | no | Comma-separated origins for CORS and the WebSocket handshake; the first is where a tapped notification lands |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | no | Turn on Web Push. `go run ./cmd/vapid` prints a pair; without one the pass nudges from the page |
+| `VAPID_SUBJECT` | no | `mailto:` contact sent with each push, per the spec |
 
 No secret is committed. `.env` is ignored; `.env.example` carries local
 development defaults only.
@@ -44,7 +46,7 @@ development defaults only.
 ## Layout
 
 ```
-cmd/          server, migrate and seed entry points
+cmd/          server, migrate, seed and vapid entry points
 internal/api  HTTP handlers and routing
 internal/…    queue rules, storage, realtime hub, tokens, middleware
 migrations/   goose migrations, embedded into the binary

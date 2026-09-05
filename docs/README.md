@@ -25,8 +25,9 @@ Beyond the brief: one anonymous **owner** can hold several queues and delegate
 the counter to named **operators** without handing over the business, customer
 names are a per-queue setting that operators see only if the queue says so,
 customers tell the counter they are on their way or here, staff can add a
-walk-in and recall a skipped number within 30 minutes, and the dashboard's
-screens share a sidebar rather than a row of tabs.
+walk-in and recall a skipped number within the queue's hold time, the nudges
+go out as push notifications, estimates learn from real service times, and
+the dashboard's screens share a sidebar rather than a row of tabs.
 
 [PLAN.md](PLAN.md) is the source of truth for what has been built, phase by
 phase, and carries the backlog — multi-seat queues, services, archiving a queue.
