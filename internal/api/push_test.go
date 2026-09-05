@@ -2,6 +2,9 @@ package api_test
 
 import (
 	"context"
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -109,14 +112,13 @@ func TestPushNudgesFollowTheLadder(t *testing.T) {
 	client.join(slug, "Ahead", "")
 	me, _ := client.join(slug, "Me", "")
 
-	// Real-looking keys: the library encrypts the payload against them, so
-	// they must be a valid P-256 point and a 16-byte auth secret.
+	// The library encrypts each payload against the browser's keys, so the
+	// fake browser needs a real P-256 point and a 16-byte auth secret. Made
+	// here and thrown away, like a browser would.
+	p256dh, auth := browserKeys(t)
 	body := map[string]any{
 		"endpoint": fake.URL + "/send",
-		"keys": map[string]string{
-			"p256dh": "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM",
-			"auth":   "tBHItJI5svbpez7KI4CCXg",
-		},
+		"keys":     map[string]string{"p256dh": p256dh, "auth": auth},
 	}
 	res = client.do(http.MethodPost, "/api/queues/"+slug+"/push", mustJSON(t, body),
 		header{httpx.CustomerTokenHeader, me.CustomerToken})
@@ -155,4 +157,21 @@ func TestPushNudgesFollowTheLadder(t *testing.T) {
 		t.Fatalf("unsubscribe: %d %s", res.status, res.body)
 	}
 	_ = json.Valid
+}
+
+// browserKeys mints what PushManager.subscribe would hand back: the public
+// half of a fresh P-256 pair and a random auth secret, base64url as on the
+// wire.
+func browserKeys(t *testing.T) (p256dh, auth string) {
+	t.Helper()
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("browser key: %v", err)
+	}
+	secret := make([]byte, 16)
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatalf("auth secret: %v", err)
+	}
+	enc := base64.RawURLEncoding
+	return enc.EncodeToString(key.PublicKey().Bytes()), enc.EncodeToString(secret)
 }
