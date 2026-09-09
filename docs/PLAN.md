@@ -866,14 +866,20 @@ will do).
    and the new-day prompt waits for every chair to be empty. The API's
    `GET /api/me/queues` gained `principalId` and the operator's name so a
    counter can tell which chair is theirs.
-6. [ ] **The customer side.** Turn screen names the seat; the board shows every
+6. [x] **Profile.** Landed 9 September 2026, reached from the personal menu
+   at `/profile`: name (the owner's to edit; an operator's is the roster's),
+   where you work (each queue with its chair count and a chair picker under
+   the same rules as the counter's), appearance, and devices (sign out
+   others for the owner, sign out this one for anybody). The name dialog in
+   the personal menu is retired in its favour.
+7. [ ] **The customer side.** Turn screen names the seat; the board shows every
    number being served; the pass's "up after N" reads from `serving[]`.
    *Web: TicketPass.tsx, Board.tsx, lib/board.ts.*
-7. [ ] **The wall.** Serving numbers side by side with seat names under them,
+8. [ ] **The wall.** Serving numbers side by side with seat names under them,
    sized by how many; up-next stays. *Web: DisplayBoard.tsx.*
-8. [ ] **History and stats.** Seat column, per-seat measured service, arrival
+9. [ ] **History and stats.** Seat column, per-seat measured service, arrival
    unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.*
-9. [ ] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
+10. [ ] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
    Playwright scenario for a two-seat day.
 
 ### Rules settled ahead of the work
