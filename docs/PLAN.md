@@ -735,7 +735,8 @@ which stays in the backlog because it changes the socket contract.
 ## Plan — multi-seat queues
 
 The one audit item left, and the biggest structural change since owners.
-Planning finished 9 September 2026; nothing below is built. The screens are
+Planning finished 9 September 2026; the build started the same day and the
+step list below is ticked as each step lands. The screens are
 on the design canvas "Multi-seat Queues": settings and seats, the rail
 counter with one chair open (2b), All chairs (2c), the rail on an iPad
 (2d), the menu shrunk to icons (2e), the operator's and the owner's picker,
@@ -798,33 +799,37 @@ will do).
 
 ### Steps
 
-1. **Migration 00010.** `seats` table; `seat_id` on `queue_entries`; replace
+1. [x] **Migration 00010.** `seats` table; `seat_id` on `queue_entries`; replace
    `one_serving_per_queue` with `one_serving_per_seat`; backfill one seat per
    queue and point every SERVING entry at it. *API: migrations, storage.*
-2. **Model and storage.** `Seat` type; `ServeNext`/`ServeEntry` take a seat;
+   Landed 9 September 2026: every called entry in history is pointed at the
+   counter too, a serving entry must name its seat, `CreateQueue` inserts the
+   default seat, and a call lands on the first open seat until step 2 lets
+   callers say which.
+2. [ ] **Model and storage.** `Seat` type; `ServeNext`/`ServeEntry` take a seat;
    `attendCurrent` stands down that seat's entry; `ListActiveEntries`
    carries `seatId`; `MeasuredService`/`Arrival` unchanged. *API: queue,
    storage, api handlers, tests.*
-3. **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
+3. [ ] **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
    kept; `EstimateWait` gains a seat divisor; `EstimateTable` follows.
    Customer view and push messages carry the seat. *API: queue/estimate.go,
    views.go, push.go, tests.*
-4. **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
+4. [ ] **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
    name, order, active. Settings screen gains a "Seats" section. *API, web
    settings.*
-5. **The counter.** One card per active seat, each with the three stages;
+5. [ ] **The counter.** One card per active seat, each with the three stages;
    an operator's seat picker in the personal menu, remembered per device;
    Serve next on a card calls to that seat; Call now asks which seat when
    more than one is free. *Web: Counter.tsx, OperatorDashboard.tsx,
    useOperatorQueue.ts.*
-6. **The customer side.** Turn screen names the seat; the board shows every
+6. [ ] **The customer side.** Turn screen names the seat; the board shows every
    number being served; the pass's "up after N" reads from `serving[]`.
    *Web: TicketPass.tsx, Board.tsx, lib/board.ts.*
-7. **The wall.** Serving numbers side by side with seat names under them,
+7. [ ] **The wall.** Serving numbers side by side with seat names under them,
    sized by how many; up-next stays. *Web: DisplayBoard.tsx.*
-8. **History and stats.** Seat column, per-seat measured service, arrival
+8. [ ] **History and stats.** Seat column, per-seat measured service, arrival
    unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.*
-9. **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
+9. [ ] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
    Playwright scenario for a two-seat day.
 
 ### Rules settled ahead of the work

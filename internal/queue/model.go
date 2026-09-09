@@ -137,6 +137,22 @@ type Entry struct {
 	WalkIn bool `json:"walkIn"`
 }
 
+// Seat is one place a customer is sent to be served: a chair, a counter, an
+// exam room. A queue with one seat is a queue with a counter, and every
+// queue has at least one. Active is whether it is open for service right
+// now; RemovedAt is set on a seat the owner has taken away, which stays so
+// history can still name it.
+type Seat struct {
+	ID        string     `json:"id"`
+	QueueID   string     `json:"queueId"`
+	Name      string     `json:"name"`
+	Position  int        `json:"position"`
+	Active    bool       `json:"active"`
+	RemovedAt *time.Time `json:"removedAt"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
 // Summary is the queue metadata safe to expose on public surfaces.
 type Summary struct {
 	ID                    string `json:"id"`

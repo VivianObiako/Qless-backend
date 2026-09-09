@@ -12,6 +12,15 @@ import (
 
 const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in`
 
+// firstActiveSeat is where a call lands until callers say which seat they
+// mean: the queue's first open seat, which for every queue made before seats
+// existed is its one and only counter. queueParam is the placeholder that
+// carries the queue id in the statement this is spliced into.
+func firstActiveSeat(queueParam string) string {
+	return `SELECT id FROM seats WHERE queue_id = ` + queueParam +
+		` AND removed_at IS NULL AND active ORDER BY position, created_at LIMIT 1`
+}
+
 func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var e queue.Entry
 	var status string
@@ -219,6 +228,7 @@ func (s *Store) ServeNext(ctx context.Context, queueID string, actor queue.Actor
 		served, err := scanEntry(tx.QueryRow(ctx,
 			`UPDATE queue_entries SET status = 'SERVING', started_at = now(),
 			        served_at = CASE WHEN presence = 'HERE' THEN now() END,
+			        seat_id = (`+firstActiveSeat("$1")+`),
 			        acted_by_type = $2::principal_type, acted_by_operator_id = $3
 			 WHERE id = (
 				 SELECT id FROM queue_entries
@@ -298,10 +308,11 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 		served, err := scanEntry(tx.QueryRow(ctx,
 			`UPDATE queue_entries SET status = 'SERVING', started_at = now(), completed_at = NULL,
 			        served_at = CASE WHEN status = 'SKIPPED' OR presence = 'HERE' THEN now() END,
-			        acted_by_type = $2::principal_type, acted_by_operator_id = $3
+			        seat_id = (`+firstActiveSeat("$2")+`),
+			        acted_by_type = $3::principal_type, acted_by_operator_id = $4
 			 WHERE id = $1
 			 RETURNING `+entryColumns,
-			entryID, actorType, operatorID,
+			entryID, queueID, actorType, operatorID,
 		))
 		if isUniqueViolation(err, "one_active_entry_per_number") {
 			// The queue was reset since they were skipped and their number

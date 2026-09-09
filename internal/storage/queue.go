@@ -91,6 +91,9 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 			if err != nil {
 				return err
 			}
+			if err := insertDefaultSeat(ctx, tx, q.ID); err != nil {
+				return err
+			}
 
 			result = CreateQueueResult{Queue: q, OwnerID: ownerID}
 			return nil
