@@ -11,7 +11,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, archived_at, created_at, updated_at`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, archived_at, created_at, updated_at`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
@@ -19,7 +19,7 @@ func scanQueue(row pgx.Row) (queue.Queue, error) {
 	err := row.Scan(
 		&q.ID, &q.Name, &q.Slug, &q.Description,
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
-		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
+		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed, &q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
 	)
 	if err != nil {
 		return queue.Queue{}, err
@@ -139,6 +139,7 @@ type UpdateQueueParams struct {
 	MaxCapacity           *int
 	ShowNamesToOperators  *bool
 	HoldMinutes           *int
+	SeatsFixed            *bool
 }
 
 // UpdateQueue applies the operator's settings. Changing the name does not
@@ -153,11 +154,12 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 		     max_capacity = CASE WHEN $5 THEN $6 ELSE max_capacity END,
 		     show_names_to_operators = COALESCE($7, show_names_to_operators),
 		     hold_minutes = COALESCE($8, hold_minutes),
+		     seats_fixed = COALESCE($9, seats_fixed),
 		     updated_at = now()
 		 WHERE id = $1
 		 RETURNING `+queueColumns,
 		queueID, p.Name, p.Description, p.AverageServiceMinutes,
-		p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes,
+		p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return queue.Queue{}, queue.ErrNotFound

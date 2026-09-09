@@ -358,6 +358,7 @@ type updateQueueRequest struct {
 	MaxCapacity           *int    `json:"maxCapacity"`
 	ShowNamesToOperators  *bool   `json:"showNamesToOperators"`
 	HoldMinutes           *int    `json:"holdMinutes"`
+	SeatsFixed            *bool   `json:"seatsFixed"`
 }
 
 const holdMinutesLimit = 120
@@ -372,6 +373,7 @@ func (r updateQueueRequest) validate(capacityPresent bool) (storage.UpdateQueueP
 		MaxCapacity:           r.MaxCapacity,
 		ShowNamesToOperators:  r.ShowNamesToOperators,
 		HoldMinutes:           r.HoldMinutes,
+		SeatsFixed:            r.SeatsFixed,
 	}
 
 	if r.HoldMinutes != nil && (*r.HoldMinutes < 0 || *r.HoldMinutes > holdMinutesLimit) {

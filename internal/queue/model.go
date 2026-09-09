@@ -54,6 +54,10 @@ type Queue struct {
 	// when it resumes.
 	PauseNote string `json:"pauseNote"`
 
+	// SeatsFixed means staff work the chair the owner assigned and cannot
+	// pick another; off, they may take any free chair and leave it.
+	SeatsFixed bool `json:"seatsFixed"`
+
 	// ArchivedAt is set once the owner has put the queue away. It is hidden
 	// from their list and refuses joins, and everything it recorded stays.
 	ArchivedAt *time.Time `json:"archivedAt"`
@@ -159,6 +163,28 @@ type Seat struct {
 	RemovedAt *time.Time `json:"removedAt"`
 	CreatedAt time.Time  `json:"createdAt"`
 	UpdatedAt time.Time  `json:"updatedAt"`
+
+	// Worker is who is at this chair: an operator, the owner, or nobody.
+	Worker *SeatWorker `json:"worker"`
+}
+
+// SeatWorker names who works a seat. OperatorID is empty for the owner;
+// Name is what the tile shows, the operator's display name or the owner's.
+type SeatWorker struct {
+	Type       PrincipalType `json:"type"`
+	OperatorID string        `json:"operatorId,omitempty"`
+	Name       string        `json:"name"`
+}
+
+// WorkedBy reports whether this actor is the one at the seat.
+func (s Seat) WorkedBy(actor Actor) bool {
+	if s.Worker == nil {
+		return false
+	}
+	if actor.IsOwner() {
+		return s.Worker.Type == PrincipalOwner
+	}
+	return s.Worker.Type == PrincipalOperator && s.Worker.OperatorID == actor.ID
 }
 
 // PublicSeat is what a customer surface knows about a seat: enough to say

@@ -244,7 +244,7 @@ func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.
 		err := rows.Scan(
 			&card.ID, &card.Name, &card.Slug, &card.Description,
 			&card.AverageServiceMinutes, &card.MaxCapacity, &status, &card.NextNumber,
-			&card.ShowNamesToOperators, &card.HoldMinutes, &card.PauseNote, &card.ArchivedAt,
+			&card.ShowNamesToOperators, &card.HoldMinutes, &card.PauseNote, &card.SeatsFixed, &card.ArchivedAt,
 			&card.CreatedAt, &card.UpdatedAt,
 			&serving, &card.ServingCount, &card.OpenSeats, &card.WaitingCount,
 		)

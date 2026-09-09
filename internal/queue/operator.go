@@ -20,8 +20,19 @@ type Operator struct {
 	DisplayName string         `json:"displayName"`
 	Status      OperatorStatus `json:"status"`
 	QueueIDs    []string       `json:"queueIds"`
-	CreatedAt   time.Time      `json:"createdAt"`
-	UpdatedAt   time.Time      `json:"updatedAt"`
+
+	// Seats are the chairs this person holds, at most one per queue.
+	Seats []OperatorSeat `json:"seats"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// OperatorSeat is one chair an operator holds, named for the roster.
+type OperatorSeat struct {
+	QueueID  string `json:"queueId"`
+	SeatID   string `json:"seatId"`
+	SeatName string `json:"seatName"`
 }
 
 func (o Operator) IsActive() bool {

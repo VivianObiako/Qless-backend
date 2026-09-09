@@ -163,6 +163,14 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "operator_not_found", "We couldn't find that operator.")
 	case errors.Is(err, queue.ErrSeatNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "seat_not_found", "We couldn't find that chair.")
+	case errors.Is(err, queue.ErrSeatOccupied):
+		httpx.WriteError(w, http.StatusConflict, "seat_occupied", "Somebody is on this chair. Finish with them first.")
+	case errors.Is(err, queue.ErrLastSeat):
+		httpx.WriteError(w, http.StatusConflict, "last_seat", "A queue needs at least one chair.")
+	case errors.Is(err, queue.ErrSeatTaken):
+		httpx.WriteError(w, http.StatusConflict, "seat_taken", "That chair is somebody's. Pick a free one.")
+	case errors.Is(err, queue.ErrSeatsFixed):
+		httpx.WriteError(w, http.StatusConflict, "seats_fixed", "Chairs are fixed here. Ask the owner for a chair.")
 	case errors.Is(err, queue.ErrSeatClosed):
 		httpx.WriteError(w, http.StatusConflict, "seat_closed", "That chair is closed. Open it first.")
 	case errors.Is(err, queue.ErrNoFreeSeat):

@@ -72,6 +72,15 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/start", s.startEntry)
 	mux.HandleFunc("POST /api/queues/{key}/entries/{entryId}/skip", s.skipEntry)
 
+	// Seats. Reading and taking a chair are shared with operators; the
+	// rest is the owner's.
+	mux.HandleFunc("GET /api/queues/{key}/seats", s.listSeats)
+	mux.HandleFunc("POST /api/queues/{key}/seats", s.createSeat)
+	mux.HandleFunc("PATCH /api/queues/{key}/seats/{seatId}", s.updateSeat)
+	mux.HandleFunc("DELETE /api/queues/{key}/seats/{seatId}", s.removeSeat)
+	mux.HandleFunc("POST /api/queues/{key}/seats/{seatId}/take", s.takeSeat)
+	mux.HandleFunc("POST /api/queues/{key}/seats/{seatId}/leave", s.leaveSeat)
+
 	mux.HandleFunc("POST /api/queues/{key}/pause", s.pauseQueue)
 	mux.HandleFunc("POST /api/queues/{key}/resume", s.resumeQueue)
 	mux.HandleFunc("POST /api/queues/{key}/close", s.closeQueue)

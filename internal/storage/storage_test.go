@@ -583,3 +583,221 @@ func TestPublicStateListsEverySeat(t *testing.T) {
 		t.Fatalf("estimates %v do not divide by two open seats", state.Estimates)
 	}
 }
+
+// Seats are managed as rows: named, ordered, opened and closed, and removed
+// softly. The rules that protect a customer — no closing or removing a chair
+// somebody is on, never fewer than one chair — are the store's.
+func TestSeatSettings(t *testing.T) {
+	store := newTestStore(t)
+	q := newTestQueue(t, store, nil)
+	ctx := context.Background()
+
+	counter, err := store.Seats(ctx, q.ID)
+	if err != nil {
+		t.Fatalf("list seats: %v", err)
+	}
+	if _, err := store.RemoveSeat(ctx, q.ID, counter[0].ID); !errors.Is(err, queue.ErrLastSeat) {
+		t.Fatalf("removing the only seat = %v, want ErrLastSeat", err)
+	}
+
+	chair2, err := store.CreateSeat(ctx, q.ID, "Chair 2")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := store.CreateSeat(ctx, q.ID, "chair 2"); !errors.Is(err, queue.ErrInvalidInput) {
+		t.Fatalf("duplicate name = %v, want invalid input", err)
+	}
+	chair3, err := store.CreateSeat(ctx, q.ID, "Chair 3")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Move Chair 3 to the front; the rest shift down and stay 1..n.
+	first := 1
+	seats, err := store.UpdateSeat(ctx, q.ID, chair3.ID, storage.UpdateSeatParams{Position: &first})
+	if err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	if names(seats) != "Chair 3,Counter,Chair 2" || seats[0].Position != 1 || seats[2].Position != 3 {
+		t.Fatalf("order after move = %v, want Chair 3 first", names(seats))
+	}
+	last := 3
+	seats, err = store.UpdateSeat(ctx, q.ID, chair3.ID, storage.UpdateSeatParams{Position: &last})
+	if err != nil {
+		t.Fatalf("reorder back: %v", err)
+	}
+	if names(seats) != "Counter,Chair 2,Chair 3" {
+		t.Fatalf("order after moving back = %v", names(seats))
+	}
+
+	// A chair with somebody on it cannot be closed or removed.
+	join(t, store, q.ID, "a")
+	if _, err := store.ServeNext(ctx, q.ID, chair2.ID, testOwner); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	closed := false
+	if _, err := store.UpdateSeat(ctx, q.ID, chair2.ID, storage.UpdateSeatParams{Active: &closed}); !errors.Is(err, queue.ErrSeatOccupied) {
+		t.Fatalf("closing an occupied seat = %v, want ErrSeatOccupied", err)
+	}
+	if _, err := store.RemoveSeat(ctx, q.ID, chair2.ID); !errors.Is(err, queue.ErrSeatOccupied) {
+		t.Fatalf("removing an occupied seat = %v, want ErrSeatOccupied", err)
+	}
+
+	// An empty one can be closed, renamed and removed, and stays resolvable.
+	seats, err = store.UpdateSeat(ctx, q.ID, chair3.ID, storage.UpdateSeatParams{Active: &closed})
+	if err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if seats[2].Active {
+		t.Fatal("Chair 3 should be closed")
+	}
+	renamed := "Room 3"
+	if _, err := store.UpdateSeat(ctx, q.ID, chair3.ID, storage.UpdateSeatParams{Name: &renamed}); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	seats, err = store.RemoveSeat(ctx, q.ID, chair3.ID)
+	if err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if names(seats) != "Counter,Chair 2" {
+		t.Fatalf("after removal = %v", names(seats))
+	}
+	if _, err := store.UpdateSeat(ctx, q.ID, chair3.ID, storage.UpdateSeatParams{Name: &renamed}); !errors.Is(err, queue.ErrSeatNotFound) {
+		t.Fatalf("editing a removed seat = %v, want ErrSeatNotFound", err)
+	}
+	var stillNamed string
+	if err := store.Pool().QueryRow(ctx, `SELECT name FROM seats WHERE id = $1`, chair3.ID).Scan(&stillNamed); err != nil || stillNamed != "Room 3" {
+		t.Fatalf("removed seat name = %q (%v), want kept for history", stillNamed, err)
+	}
+}
+
+func names(seats []queue.Seat) string {
+	out := ""
+	for i, seat := range seats {
+		if i > 0 {
+			out += ","
+		}
+		out += seat.Name
+	}
+	return out
+}
+
+// Who works a chair. The owner may take any chair and bump whoever is on
+// it; an operator only a free one, and not at all where chairs are fixed.
+// Everyone holds one chair per queue.
+func TestSeatWorkers(t *testing.T) {
+	store := newTestStore(t)
+	q := newTestQueue(t, store, nil)
+	ctx := context.Background()
+
+	var ownerID string
+	if err := store.Pool().QueryRow(ctx, `SELECT owner_id FROM queues WHERE id = $1`, q.ID).Scan(&ownerID); err != nil {
+		t.Fatalf("read owner: %v", err)
+	}
+	owner := queue.Actor{Type: queue.PrincipalOwner, ID: ownerID, OwnerID: ownerID}
+
+	ada, err := store.CreateOperator(ctx, storage.CreateOperatorParams{
+		OwnerID: ownerID, DisplayName: "Ada", AccessCodeHash: token.Hash("ada-" + freshSecret(t)), QueueIDs: []string{q.ID},
+	})
+	if err != nil {
+		t.Fatalf("hire Ada: %v", err)
+	}
+	adaActor := queue.Actor{Type: queue.PrincipalOperator, ID: ada.ID, OwnerID: ownerID}
+	bola, err := store.CreateOperator(ctx, storage.CreateOperatorParams{
+		OwnerID: ownerID, DisplayName: "Bola", AccessCodeHash: token.Hash("bola-" + freshSecret(t)),
+	})
+	if err != nil {
+		t.Fatalf("hire Bola: %v", err)
+	}
+
+	seats, _ := store.Seats(ctx, q.ID)
+	counter := seats[0]
+	chair2, err := store.CreateSeat(ctx, q.ID, "Chair 2")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Assigning from the roster: the operator must work this queue.
+	if _, err := store.AssignSeat(ctx, q.ID, counter.ID, &queue.SeatWorker{Type: queue.PrincipalOperator, OperatorID: bola.ID}); !errors.Is(err, queue.ErrOperatorNotFound) {
+		t.Fatalf("assigning an operator not on the queue = %v, want ErrOperatorNotFound", err)
+	}
+	seats, err = store.AssignSeat(ctx, q.ID, counter.ID, &queue.SeatWorker{Type: queue.PrincipalOperator, OperatorID: ada.ID})
+	if err != nil {
+		t.Fatalf("assign Ada: %v", err)
+	}
+	if seats[0].Worker == nil || seats[0].Worker.Name != "Ada" || seats[0].Worker.OperatorID != ada.ID {
+		t.Fatalf("counter worker = %+v, want Ada", seats[0].Worker)
+	}
+
+	// One chair per operator per queue: moving Ada frees the counter.
+	seats, err = store.AssignSeat(ctx, q.ID, chair2.ID, &queue.SeatWorker{Type: queue.PrincipalOperator, OperatorID: ada.ID})
+	if err != nil {
+		t.Fatalf("move Ada: %v", err)
+	}
+	if seats[0].Worker != nil || seats[1].Worker == nil {
+		t.Fatalf("after moving Ada: counter %+v, chair 2 %+v", seats[0].Worker, seats[1].Worker)
+	}
+
+	// An operator may not take a chair that is somebody's; the owner may.
+	if _, err := store.TakeSeat(ctx, q.ID, chair2.ID, queue.Actor{Type: queue.PrincipalOperator, ID: bola.ID, OwnerID: ownerID}); !errors.Is(err, queue.ErrSeatTaken) {
+		t.Fatalf("Bola taking Ada's chair = %v, want ErrSeatTaken", err)
+	}
+	seats, err = store.TakeSeat(ctx, q.ID, chair2.ID, owner)
+	if err != nil {
+		t.Fatalf("owner taking Ada's chair: %v", err)
+	}
+	if seats[1].Worker == nil || seats[1].Worker.Type != queue.PrincipalOwner {
+		t.Fatalf("chair 2 after the owner took it = %+v", seats[1].Worker)
+	}
+
+	// Ada, bumped, takes the free counter; leaving makes it nobody's.
+	seats, err = store.TakeSeat(ctx, q.ID, counter.ID, adaActor)
+	if err != nil {
+		t.Fatalf("Ada taking the counter: %v", err)
+	}
+	if seats[0].Worker == nil || seats[0].Worker.OperatorID != ada.ID {
+		t.Fatalf("counter after Ada took it = %+v", seats[0].Worker)
+	}
+	seats, err = store.LeaveSeat(ctx, q.ID, counter.ID, adaActor)
+	if err != nil {
+		t.Fatalf("Ada leaving: %v", err)
+	}
+	if seats[0].Worker != nil {
+		t.Fatalf("counter after Ada left = %+v, want nobody", seats[0].Worker)
+	}
+
+	// A chair with somebody being served at it is not free either.
+	join(t, store, q.ID, "a")
+	if _, err := store.ServeNext(ctx, q.ID, counter.ID, testOwner); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if _, err := store.TakeSeat(ctx, q.ID, counter.ID, adaActor); !errors.Is(err, queue.ErrSeatTaken) {
+		t.Fatalf("taking a chair somebody is on = %v, want ErrSeatTaken", err)
+	}
+
+	// Fixed chairs: staff cannot pick or leave; the owner still assigns.
+	fixed := true
+	if _, err := store.UpdateQueue(ctx, q.ID, storage.UpdateQueueParams{SeatsFixed: &fixed}); err != nil {
+		t.Fatalf("fix seats: %v", err)
+	}
+	if _, err := store.TakeSeat(ctx, q.ID, chair2.ID, adaActor); !errors.Is(err, queue.ErrSeatsFixed) {
+		t.Fatalf("taking with fixed seats = %v, want ErrSeatsFixed", err)
+	}
+	seats, err = store.AssignSeat(ctx, q.ID, chair2.ID, &queue.SeatWorker{Type: queue.PrincipalOperator, OperatorID: ada.ID})
+	if err != nil {
+		t.Fatalf("assign with fixed seats: %v", err)
+	}
+	if _, err := store.LeaveSeat(ctx, q.ID, chair2.ID, adaActor); !errors.Is(err, queue.ErrSeatsFixed) {
+		t.Fatalf("leaving with fixed seats = %v, want ErrSeatsFixed", err)
+	}
+
+	// Taking Ada off the queue, or revoking her, gives the chair up.
+	none := []string{}
+	if _, err := store.UpdateOperator(ctx, ownerID, ada.ID, storage.UpdateOperatorParams{QueueIDs: &none}); err != nil {
+		t.Fatalf("unassign Ada: %v", err)
+	}
+	seats, _ = store.Seats(ctx, q.ID)
+	if seats[1].Worker != nil {
+		t.Fatalf("chair 2 after Ada left the queue = %+v, want nobody", seats[1].Worker)
+	}
+}

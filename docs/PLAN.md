@@ -826,9 +826,23 @@ will do).
    ranks on `TurnsAhead` (floor), and the turn push says "Go to Chair 2" on
    a queue with more than one seat. The queues list card gains
    `servingCount` and `openSeats`.
-4. [ ] **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
+4. [x] **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
    name, order, active. Settings screen gains a "Seats" section. *API, web
-   settings.*
+   settings.* Landed 9 September 2026. API: migration 00011 puts a worker
+   on a seat (an operator, or the owner) and `seats_fixed` on the queue;
+   `GET …/seats` is shared with staff, `POST`, `PATCH` (name, position,
+   active, `worker`) and `DELETE` are the owner's, and `…/seats/{id}/take`
+   and `/leave` are each person's own. A chair somebody is on cannot be
+   closed or removed (409 `seat_occupied`), the last chair cannot be removed
+   (409 `last_seat`), an operator cannot take a chair that is somebody's
+   (409 `seat_taken`) or any chair where chairs are fixed (409
+   `seats_fixed`); the owner may take any. Unassigning or revoking an
+   operator gives their chairs up. Web: Settings is four tabs — General,
+   Seats, Waiting, Privacy — each saving on its own, with a prompt before
+   leaving a tab with unsaved changes; the Seats tab lists chairs with
+   name, worker, an Open switch, ordering and removal, adds a chair, and
+   carries the "Chairs are fixed" switch; the Team roster gains a chair
+   picker per queue with more than one chair.
 5. [ ] **The counter.** One card per active seat, each with the three stages;
    an operator's seat picker in the personal menu, remembered per device;
    Serve next on a card calls to that seat; Call now asks which seat when
