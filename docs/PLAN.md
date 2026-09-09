@@ -872,9 +872,18 @@ will do).
    the same rules as the counter's), appearance, and devices (sign out
    others for the owner, sign out this one for anybody). The name dialog in
    the personal menu is retired in its favour.
-7. [ ] **The customer side.** Turn screen names the seat; the board shows every
+7. [x] **The customer side.** Turn screen names the seat; the board shows every
    number being served; the pass's "up after N" reads from `serving[]`.
-   *Web: TicketPass.tsx, Board.tsx, lib/board.ts.*
+   *Web: TicketPass.tsx, Board.tsx, lib/board.ts.* Landed 9 September 2026.
+   `proximityOf` ranks on `turnsAhead(peopleAhead, openSeats)`, the same
+   floor the API's push ladder uses; the board lists one row per chair,
+   named when there is more than one; "You're up after 14 and 15" lists
+   every number being served; the turn screen says "Go to Chair 2" and
+   "Ada is ready for you at Ade's Barbershop", which is why the public seat
+   now carries `workerName`; the in-page and push nudges say the chair; a
+   served entry is stale when its number is not in `serving[]`; the alerts
+   copy counts turns; "Now serving" becomes "Last called" on a queue with
+   several chairs.
 8. [ ] **The wall.** Serving numbers side by side with seat names under them,
    sized by how many; up-next stays. *Web: DisplayBoard.tsx.*
 9. [ ] **History and stats.** Seat column, per-seat measured service, arrival
