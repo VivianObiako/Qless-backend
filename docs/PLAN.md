@@ -995,6 +995,12 @@ more than one seat.
 - **The operator's counter is the same screen with one tile.** Their chair
   is open, the other tiles are visible but not openable, and the list is
   the shared line.
+- **The menu shrinks.** A panel icon at the top-left of the content
+  collapses the sidebar to a 64px icon rail and opens it again, remembered
+  per device. The switcher and the personal menu open from their icons;
+  every icon carries its name on hover and for a screen reader. On a wide
+  counter that is two more chair tiles in view. This is chrome, not seats:
+  it lands in `DashboardChrome` and every dashboard screen gets it.
 - **The rail never wraps.** One row that scrolls sideways, with a fade at
   the edge to say there is more: about ten tiles in view on a desktop,
   five on an iPad upright, three on a phone. The open chair's tile is
