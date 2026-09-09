@@ -995,8 +995,11 @@ more than one seat.
 - **The operator's counter is the same screen with one tile.** Their chair
   is open, the other tiles are visible but not openable, and the list is
   the shared line.
-- **On an iPad upright** the rail wraps to two rows of tiles and the card
-  and list stack; tiles are 44px tall or more.
+- **The rail never wraps.** One row that scrolls sideways, with a fade at
+  the edge to say there is more: about ten tiles in view on a desktop,
+  five on an iPad upright, three on a phone. The open chair's tile is
+  scrolled into view when the card changes. On an iPad and a phone the card
+  and the list stack underneath; tiles stay 44px or taller.
 
 ### Risks and open questions
 
