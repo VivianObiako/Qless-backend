@@ -29,4 +29,15 @@ var (
 	ErrInvalidCode = errors.New("invalid access code")
 
 	ErrOperatorNotFound = errors.New("operator not found")
+
+	ErrSeatNotFound = errors.New("seat not found")
+
+	// ErrSeatClosed is a call aimed at a chair that is not in service; the
+	// counter should not have offered it.
+	ErrSeatClosed = errors.New("seat is closed")
+
+	// ErrNoFreeSeat is a call with no seat named on a queue where every open
+	// seat has somebody on it. With one seat the call reuses it; with several
+	// the caller has to say which person to stand down.
+	ErrNoFreeSeat = errors.New("every seat is taken")
 )

@@ -135,6 +135,10 @@ type Entry struct {
 	// Added at the counter by staff rather than from a phone. Nobody can
 	// recover this entry on a device, so the counter says so.
 	WalkIn bool `json:"walkIn"`
+
+	// SeatID is where they were called to. Nil while they wait, set by the
+	// call and kept afterwards so history can say which chair served them.
+	SeatID *string `json:"seatId"`
 }
 
 // Seat is one place a customer is sent to be served: a chair, a counter, an

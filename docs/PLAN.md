@@ -806,10 +806,15 @@ will do).
    counter too, a serving entry must name its seat, `CreateQueue` inserts the
    default seat, and a call lands on the first open seat until step 2 lets
    callers say which.
-2. [ ] **Model and storage.** `Seat` type; `ServeNext`/`ServeEntry` take a seat;
+2. [x] **Model and storage.** `Seat` type; `ServeNext`/`ServeEntry` take a seat;
    `attendCurrent` stands down that seat's entry; `ListActiveEntries`
    carries `seatId`; `MeasuredService`/`Arrival` unchanged. *API: queue,
-   storage, api handlers, tests.*
+   storage, api handlers, tests.* Landed 9 September 2026: `POST …/next`
+   and `…/serve` take an optional `{seatId}`; with none the lowest free open
+   seat is used, a lone taken seat is reused, and several taken seats answer
+   409 `no_free_seat`. A closed seat answers 409 `seat_closed`, an unknown
+   one 404. The operator view carries `seats`, `servingList` and keeps
+   `serving` as the most recent call; entries carry `seatId`.
 3. [ ] **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
    kept; `EstimateWait` gains a seat divisor; `EstimateTable` follows.
    Customer view and push messages carry the seat. *API: queue/estimate.go,

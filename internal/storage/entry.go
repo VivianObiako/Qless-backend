@@ -10,16 +10,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in`
-
-// firstActiveSeat is where a call lands until callers say which seat they
-// mean: the queue's first open seat, which for every queue made before seats
-// existed is its one and only counter. queueParam is the placeholder that
-// carries the queue id in the statement this is spliced into.
-func firstActiveSeat(queueParam string) string {
-	return `SELECT id FROM seats WHERE queue_id = ` + queueParam +
-		` AND removed_at IS NULL AND active ORDER BY position, created_at LIMIT 1`
-}
+const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in, seat_id`
 
 func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var e queue.Entry
@@ -28,7 +19,7 @@ func scanEntry(row pgx.Row) (queue.Entry, error) {
 	err := row.Scan(
 		&e.ID, &e.QueueID, &e.Number, &e.CustomerName, &status,
 		&e.JoinedAt, &e.StartedAt, &e.CompletedAt, &e.ServedAt,
-		&presence, &e.PresenceAt, &e.WalkIn,
+		&presence, &e.PresenceAt, &e.WalkIn, &e.SeatID,
 	)
 	if err != nil {
 		return queue.Entry{}, err
@@ -207,10 +198,14 @@ type ServeResult struct {
 	Attended *queue.Entry `json:"attended"`
 }
 
-// ServeNext attends whoever is currently being served and promotes the lowest
-// waiting number in their place. Both halves happen under the queue row lock,
-// so two operators clicking at once cannot serve the same customer twice.
-func (s *Store) ServeNext(ctx context.Context, queueID string, actor queue.Actor) (ServeResult, error) {
+// ServeNext calls the lowest waiting number to a seat, standing down whoever
+// was on that seat first. Both halves happen under the queue row lock, so two
+// operators clicking at once cannot serve the same customer twice.
+//
+// seatID may be empty, in which case the lowest free open seat is used — see
+// pickSeat. Clients always send one; the default is for the one-seat case and
+// for clients from before seats existed.
+func (s *Store) ServeNext(ctx context.Context, queueID, seatID string, actor queue.Actor) (ServeResult, error) {
 	var result ServeResult
 
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
@@ -218,7 +213,12 @@ func (s *Store) ServeNext(ctx context.Context, queueID string, actor queue.Actor
 			return err
 		}
 
-		attended, err := attendCurrent(ctx, tx, queueID, actor)
+		seat, err := pickSeat(ctx, tx, queueID, seatID)
+		if err != nil {
+			return err
+		}
+
+		attended, err := attendCurrent(ctx, tx, queueID, seat, actor)
 		if err != nil {
 			return err
 		}
@@ -228,7 +228,7 @@ func (s *Store) ServeNext(ctx context.Context, queueID string, actor queue.Actor
 		served, err := scanEntry(tx.QueryRow(ctx,
 			`UPDATE queue_entries SET status = 'SERVING', started_at = now(),
 			        served_at = CASE WHEN presence = 'HERE' THEN now() END,
-			        seat_id = (`+firstActiveSeat("$1")+`),
+			        seat_id = $4,
 			        acted_by_type = $2::principal_type, acted_by_operator_id = $3
 			 WHERE id = (
 				 SELECT id FROM queue_entries
@@ -237,7 +237,7 @@ func (s *Store) ServeNext(ctx context.Context, queueID string, actor queue.Actor
 				 LIMIT 1
 			 )
 			 RETURNING `+entryColumns,
-			queueID, actorType, operatorID,
+			queueID, actorType, operatorID, seat,
 		))
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Queue is empty. Attending the previous customer still stands.
@@ -255,13 +255,14 @@ func (s *Store) ServeNext(ctx context.Context, queueID string, actor queue.Actor
 	return result, nil
 }
 
-// ServeEntry calls one specific customer to the counter.
+// ServeEntry calls one specific customer to a seat: somebody waiting, out of
+// order, or somebody skipped, back within the hold time.
 //
-// Whoever was at the counter is attended first, exactly as ServeNext does —
-// there is one counter, and the database enforces it with a unique index. What
+// Whoever was on that seat is stood down first, exactly as ServeNext does —
+// one person per seat, and the database enforces it with a unique index. What
 // this does *not* do is reorder anyone: the customer is lifted out of the line
 // and everybody else keeps the position they had.
-func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor queue.Actor) (ServeResult, error) {
+func (s *Store) ServeEntry(ctx context.Context, queueID, entryID, seatID string, actor queue.Actor) (ServeResult, error) {
 	var result ServeResult
 
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
@@ -298,7 +299,12 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 			return queue.ErrEntryNotActive
 		}
 
-		attended, err := attendCurrent(ctx, tx, queueID, actor)
+		seat, err := pickSeat(ctx, tx, queueID, seatID)
+		if err != nil {
+			return err
+		}
+
+		attended, err := attendCurrent(ctx, tx, queueID, seat, actor)
 		if err != nil {
 			return err
 		}
@@ -308,11 +314,11 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID string, actor q
 		served, err := scanEntry(tx.QueryRow(ctx,
 			`UPDATE queue_entries SET status = 'SERVING', started_at = now(), completed_at = NULL,
 			        served_at = CASE WHEN status = 'SKIPPED' OR presence = 'HERE' THEN now() END,
-			        seat_id = (`+firstActiveSeat("$2")+`),
+			        seat_id = $2,
 			        acted_by_type = $3::principal_type, acted_by_operator_id = $4
 			 WHERE id = $1
 			 RETURNING `+entryColumns,
-			entryID, queueID, actorType, operatorID,
+			entryID, seat, actorType, operatorID,
 		))
 		if isUniqueViolation(err, "one_active_entry_per_number") {
 			// The queue was reset since they were skipped and their number
@@ -485,7 +491,7 @@ func (s *Store) History(ctx context.Context, queueID string, limit int) ([]queue
 		err := rows.Scan(
 			&entry.ID, &entry.QueueID, &entry.Number, &entry.CustomerName, &status,
 			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt, &entry.ServedAt,
-			&presence, &entry.PresenceAt, &entry.WalkIn,
+			&presence, &entry.PresenceAt, &entry.WalkIn, &entry.SeatID,
 			&actedByType, &operatorName,
 		)
 		if err != nil {
@@ -573,20 +579,23 @@ func actedBy(actor queue.Actor) (string, any) {
 	return string(queue.PrincipalOwner), nil
 }
 
-// attendCurrent stands down whoever is at the counter so somebody else can
-// be called. A person whose service had begun is attended; a person who was
-// called and never turned up is skipped, with their number held, so moving
-// on from a no-show never writes "served" into their history.
-func attendCurrent(ctx context.Context, tx pgx.Tx, queueID string, actor queue.Actor) (*queue.Entry, error) {
+// attendCurrent stands down whoever is on one seat so somebody else can be
+// called to it. A person whose service had begun is attended; a person who
+// was called and never turned up is skipped, with their number held, so
+// moving on from a no-show never writes "served" into their history.
+//
+// It acts on that seat's entry alone: calling somebody to Chair 3 never
+// stands down the person walking back to Chair 2.
+func attendCurrent(ctx context.Context, tx pgx.Tx, queueID, seatID string, actor queue.Actor) (*queue.Entry, error) {
 	actorType, operatorID := actedBy(actor)
 	attended, err := scanEntry(tx.QueryRow(ctx,
 		`UPDATE queue_entries
 		    SET status = CASE WHEN served_at IS NULL THEN 'SKIPPED' ELSE 'ATTENDED' END::entry_status,
 		        completed_at = now(),
-		        acted_by_type = $2::principal_type, acted_by_operator_id = $3
-		 WHERE queue_id = $1 AND status = 'SERVING'
+		        acted_by_type = $3::principal_type, acted_by_operator_id = $4
+		 WHERE queue_id = $1 AND seat_id = $2 AND status = 'SERVING'
 		 RETURNING `+entryColumns,
-		queueID, actorType, operatorID,
+		queueID, seatID, actorType, operatorID,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -626,13 +635,15 @@ func (s *Store) ListRecentlySkipped(ctx context.Context, queueID string) ([]queu
 	return entries, nil
 }
 
-// ListActiveEntries returns the customer being served plus everyone waiting,
-// in queue order. Operator-only: this is the one place names are returned.
+// ListActiveEntries returns everyone being served, in seat order, then
+// everyone waiting, in queue order. Operator-only: this is the one place
+// names are returned.
 func (s *Store) ListActiveEntries(ctx context.Context, queueID string) ([]queue.Entry, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+entryColumns+` FROM queue_entries
-		 WHERE queue_id = $1 AND status IN ('SERVING', 'WAITING')
-		 ORDER BY (status = 'SERVING') DESC, number`,
+		`SELECT `+prefixed(entryColumns, "e")+` FROM queue_entries e
+		 LEFT JOIN seats s ON s.id = e.seat_id
+		 WHERE e.queue_id = $1 AND e.status IN ('SERVING', 'WAITING')
+		 ORDER BY (e.status = 'SERVING') DESC, s.position, e.number`,
 		queueID,
 	)
 	if err != nil {

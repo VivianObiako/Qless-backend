@@ -192,7 +192,7 @@ func TestMigrationGivesEveryQueueOneSeat(t *testing.T) {
 
 	// The queue still serves as before: the one seat is reused, and the
 	// person on it is stood down.
-	result, err := store.ServeNext(ctx, queueID, queue.Actor{Type: queue.PrincipalOwner})
+	result, err := store.ServeNext(ctx, queueID, "", queue.Actor{Type: queue.PrincipalOwner})
 	if err != nil {
 		t.Fatalf("serve next after migrating: %v", err)
 	}

@@ -103,3 +103,66 @@ func TestServiceBeginsWhenTheCustomerIsActuallyThere(t *testing.T) {
 		t.Fatalf("expected three arrival measurements, got %d", view.Arrival.Sample)
 	}
 }
+
+type seatedView struct {
+	Seats []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"seats"`
+	Serving *struct {
+		Number int    `json:"number"`
+		SeatID string `json:"seatId"`
+	} `json:"serving"`
+	ServingList []struct {
+		Number int `json:"number"`
+	} `json:"servingList"`
+}
+
+// A call may name its seat. With one seat the name is optional and the
+// answer is the same either way; a seat that does not exist is refused.
+func TestCallsNameTheirSeat(t *testing.T) {
+	client := newTestClient(t)
+	created := client.createQueue("Seated Shop")
+	owner := header{"Authorization", "Bearer " + created.OwnerToken}
+	slug := created.Queue.Slug
+
+	client.join(slug, "Amara", "")
+	client.join(slug, "Kofi", "")
+
+	var view seatedView
+	res := client.do(http.MethodGet, "/api/queues/"+slug+"/entries", nil, owner)
+	decode(t, res, &view)
+	if len(view.Seats) != 1 || view.Seats[0].Name != "Counter" {
+		t.Fatalf("a new queue has seats %+v, want one called Counter", view.Seats)
+	}
+	counter := view.Seats[0].ID
+
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/next", mustJSON(t, map[string]string{"seatId": counter}), owner)
+	if res.status != http.StatusOK {
+		t.Fatalf("next with a seat: %d %s", res.status, res.body)
+	}
+	decode(t, res, &view)
+	if view.Serving == nil || view.Serving.Number != 1 || view.Serving.SeatID != counter {
+		t.Fatalf("serving = %+v, want #1 on the counter", view.Serving)
+	}
+	if len(view.ServingList) != 1 {
+		t.Fatalf("serving list = %+v, want one person", view.ServingList)
+	}
+
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/next",
+		mustJSON(t, map[string]string{"seatId": "00000000-0000-0000-0000-000000000000"}), owner)
+	if res.status != http.StatusNotFound {
+		t.Fatalf("next with an unknown seat: %d %s, want 404", res.status, res.body)
+	}
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/next", mustJSON(t, map[string]string{"seatId": "chair"}), owner)
+	if res.status != http.StatusNotFound {
+		t.Fatalf("next with a malformed seat: %d %s, want 404", res.status, res.body)
+	}
+
+	// No body at all still works, as every client from before seats sends.
+	res = client.do(http.MethodPost, "/api/queues/"+slug+"/next", nil, owner)
+	decode(t, res, &view)
+	if view.Serving == nil || view.Serving.Number != 2 {
+		t.Fatalf("serving after a bodiless call = %+v, want #2", view.Serving)
+	}
+}

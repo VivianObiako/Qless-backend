@@ -51,8 +51,34 @@ func (s *Server) listEntries(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, view)
 }
 
-// serveNext attends the current customer and promotes the next one, returning
-// the refreshed dashboard so the operator's screen updates from one request.
+// callRequest names the seat a call lands on. The body is optional: a
+// client from before seats sends none, and the lowest free seat is used.
+type callRequest struct {
+	SeatID string `json:"seatId"`
+}
+
+// readSeat reads the optional seat off a call. A seat id that is not shaped
+// like one answers 404, the same as an id from another queue would.
+func readSeat(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if r.ContentLength == 0 {
+		return "", true
+	}
+	var req callRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		writeError(w, invalid("We couldn't read that request."))
+		return "", false
+	}
+	seatID := strings.TrimSpace(req.SeatID)
+	if seatID != "" && !storage.IsUUID(seatID) {
+		writeError(w, queue.ErrSeatNotFound)
+		return "", false
+	}
+	return seatID, true
+}
+
+// serveNext stands down whoever is on a seat and calls the next person to it,
+// returning the refreshed dashboard so the operator's screen updates from one
+// request.
 //
 // Working the counter is shared with operators by the permission table, so this
 // asks for access to the queue rather than for ownership of it.
@@ -62,7 +88,12 @@ func (s *Server) serveNext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.store.ServeNext(r.Context(), q.ID, actor)
+	seatID, ok := readSeat(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := s.store.ServeNext(r.Context(), q.ID, seatID, actor)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -94,7 +125,8 @@ func entryID(r *http.Request) (string, bool) {
 	return id, true
 }
 
-// serveEntry calls one named customer to the counter, out of order.
+// serveEntry calls one named customer to a seat, out of order, or calls a
+// skipped one back.
 func (s *Server) serveEntry(w http.ResponseWriter, r *http.Request) {
 	q, actor, ok := s.requireQueueAccess(w, r)
 	if !ok {
@@ -107,7 +139,12 @@ func (s *Server) serveEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.ServeEntry(r.Context(), q.ID, id, actor); err != nil {
+	seatID, ok := readSeat(w, r)
+	if !ok {
+		return
+	}
+
+	if _, err := s.store.ServeEntry(r.Context(), q.ID, id, seatID, actor); err != nil {
 		writeError(w, err)
 		return
 	}

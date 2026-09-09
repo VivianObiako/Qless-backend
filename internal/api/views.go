@@ -48,8 +48,18 @@ type WaitingRow struct {
 // OperatorView is the dashboard payload. This is the only response shape that
 // can carry customer names, and whether it does depends on who asked.
 type OperatorView struct {
-	Queue        queue.Queue  `json:"queue"`
-	Serving      *queue.Entry `json:"serving"`
+	Queue queue.Queue `json:"queue"`
+
+	// Serving is the person called most recently. Kept for the one-seat
+	// screens; every seat's occupant is on Seats and in ServingList.
+	Serving *queue.Entry `json:"serving"`
+
+	// ServingList is everyone being served, one per seat, in seat order.
+	ServingList []queue.Entry `json:"servingList"`
+
+	// Seats are the queue's seats in order, removed ones left out.
+	Seats []queue.Seat `json:"seats"`
+
 	Waiting      []WaitingRow `json:"waiting"`
 	WaitingCount int          `json:"waitingCount"`
 
@@ -72,6 +82,14 @@ type OperatorView struct {
 	// ShowsNames says whether this payload carries them, so the screen renders
 	// a queue of numbers on purpose rather than a queue of blanks by accident.
 	ShowsNames bool `json:"showsNames"`
+}
+
+// calledAfter orders two people being served by when they were called.
+func calledAfter(a, b queue.Entry) bool {
+	if a.StartedAt == nil || b.StartedAt == nil {
+		return false
+	}
+	return a.StartedAt.After(*b.StartedAt)
 }
 
 // maySeeNames is the single answer to "does this person get names", asked by
@@ -113,8 +131,15 @@ func (s *Server) operatorView(
 		return OperatorView{}, err
 	}
 
+	seats, err := s.store.Seats(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+
 	view := OperatorView{
 		Queue:          q,
+		ServingList:    []queue.Entry{},
+		Seats:          seats,
 		Waiting:        []WaitingRow{},
 		ShowsNames:     withNames,
 		Measured:       measured,
@@ -128,8 +153,11 @@ func (s *Server) operatorView(
 		}
 
 		if entry.Status == queue.EntryServing {
-			serving := entry
-			view.Serving = &serving
+			view.ServingList = append(view.ServingList, entry)
+			if view.Serving == nil || calledAfter(entry, *view.Serving) {
+				serving := entry
+				view.Serving = &serving
+			}
 			continue
 		}
 		view.Waiting = append(view.Waiting, WaitingRow{

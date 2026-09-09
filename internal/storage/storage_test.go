@@ -293,7 +293,7 @@ func TestServeNextPromotesLowestNumberAndAttendsPrevious(t *testing.T) {
 	first := join(t, store, q.ID, "first")
 	second := join(t, store, q.ID, "second")
 
-	result, err := store.ServeNext(ctx, q.ID, testOwner)
+	result, err := store.ServeNext(ctx, q.ID, "", testOwner)
 	if err != nil {
 		t.Fatalf("first serve next: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestServeNextPromotesLowestNumberAndAttendsPrevious(t *testing.T) {
 		t.Fatalf("served %v, want number %d", result.Served, first.Number)
 	}
 
-	result, err = store.ServeNext(ctx, q.ID, testOwner)
+	result, err = store.ServeNext(ctx, q.ID, "", testOwner)
 	if err != nil {
 		t.Fatalf("second serve next: %v", err)
 	}
@@ -329,11 +329,11 @@ func TestServeNextOnEmptyQueueAttendsCurrentAndStops(t *testing.T) {
 
 	only := join(t, store, q.ID, "only")
 
-	if _, err := store.ServeNext(ctx, q.ID, testOwner); err != nil {
+	if _, err := store.ServeNext(ctx, q.ID, "", testOwner); err != nil {
 		t.Fatalf("serve next: %v", err)
 	}
 
-	result, err := store.ServeNext(ctx, q.ID, testOwner)
+	result, err := store.ServeNext(ctx, q.ID, "", testOwner)
 	if err != nil {
 		t.Fatalf("serve next on empty queue: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestConcurrentServeNextServesEachCustomerOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			result, err := store.ServeNext(context.Background(), q.ID, testOwner)
+			result, err := store.ServeNext(context.Background(), q.ID, "", testOwner)
 			if err != nil {
 				return
 			}
@@ -397,7 +397,7 @@ func TestPublicStateExposesNumbersOnly(t *testing.T) {
 
 	join(t, store, q.ID, "Vivian")
 	join(t, store, q.ID, "John")
-	if _, err := store.ServeNext(ctx, q.ID, testOwner); err != nil {
+	if _, err := store.ServeNext(ctx, q.ID, "", testOwner); err != nil {
 		t.Fatalf("serve next: %v", err)
 	}
 
@@ -417,5 +417,117 @@ func TestPublicStateExposesNumbersOnly(t *testing.T) {
 	}
 	if got := state.PeopleAhead(2); got != 0 {
 		t.Errorf("people ahead of #2 = %d, want 0", got)
+	}
+}
+
+// With two seats, calls fill the free seats lowest first and never touch the
+// other seat's person. Standing down happens only when a seat is reused.
+func TestServeNextFillsFreeSeatsLowestFirst(t *testing.T) {
+	store := newTestStore(t)
+	q := newTestQueue(t, store, nil)
+	ctx := context.Background()
+
+	seats, err := store.Seats(ctx, q.ID)
+	if err != nil {
+		t.Fatalf("list seats: %v", err)
+	}
+	counter := seats[0]
+	chair2, err := store.CreateSeat(ctx, q.ID, "Chair 2")
+	if err != nil {
+		t.Fatalf("create seat: %v", err)
+	}
+
+	join(t, store, q.ID, "first")
+	join(t, store, q.ID, "second")
+	join(t, store, q.ID, "third")
+
+	first, err := store.ServeNext(ctx, q.ID, "", testOwner)
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if first.Served == nil || first.Served.SeatID == nil || *first.Served.SeatID != counter.ID {
+		t.Fatalf("first call landed on %+v, want the counter", first.Served)
+	}
+
+	second, err := store.ServeNext(ctx, q.ID, "", testOwner)
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if second.Attended != nil {
+		t.Fatalf("second call stood down %+v; the counter's person must be left alone", second.Attended)
+	}
+	if second.Served == nil || second.Served.SeatID == nil || *second.Served.SeatID != chair2.ID {
+		t.Fatalf("second call landed on %+v, want Chair 2", second.Served)
+	}
+
+	// Every seat taken and none named: the caller has to say.
+	if _, err := store.ServeNext(ctx, q.ID, "", testOwner); !errors.Is(err, queue.ErrNoFreeSeat) {
+		t.Fatalf("call with every seat taken = %v, want ErrNoFreeSeat", err)
+	}
+
+	// Naming the counter reuses it: its person is stood down, Chair 2's is not.
+	third, err := store.ServeNext(ctx, q.ID, counter.ID, testOwner)
+	if err != nil {
+		t.Fatalf("call to the counter: %v", err)
+	}
+	if third.Attended == nil || third.Attended.Number != 1 || third.Attended.Status != queue.EntrySkipped {
+		t.Fatalf("stood down %+v, want #1 skipped (never served)", third.Attended)
+	}
+	if third.Served == nil || third.Served.Number != 3 || *third.Served.SeatID != counter.ID {
+		t.Fatalf("called %+v, want #3 on the counter", third.Served)
+	}
+
+	active, err := store.ListActiveEntries(ctx, q.ID)
+	if err != nil {
+		t.Fatalf("list active: %v", err)
+	}
+	if len(active) != 2 || active[0].Number != 3 || active[1].Number != 2 {
+		t.Fatalf("active = %+v, want #3 on the counter then #2 on Chair 2", active)
+	}
+
+	// A closed seat and a seat from nowhere are refused.
+	if _, err := store.Pool().Exec(ctx, `UPDATE seats SET active = false WHERE id = $1`, chair2.ID); err != nil {
+		t.Fatalf("close seat: %v", err)
+	}
+	if _, err := store.ServeNext(ctx, q.ID, chair2.ID, testOwner); !errors.Is(err, queue.ErrSeatClosed) {
+		t.Fatalf("call to a closed seat = %v, want ErrSeatClosed", err)
+	}
+	other := newTestQueue(t, store, nil)
+	otherSeats, _ := store.Seats(ctx, other.ID)
+	if _, err := store.ServeNext(ctx, q.ID, otherSeats[0].ID, testOwner); !errors.Is(err, queue.ErrSeatNotFound) {
+		t.Fatalf("call to another queue's seat = %v, want ErrSeatNotFound", err)
+	}
+}
+
+// A skipped person is recalled to a seat like anybody else, which may be a
+// different one from where they were first called.
+func TestRecallLandsOnTheSeatNamed(t *testing.T) {
+	store := newTestStore(t)
+	q := newTestQueue(t, store, nil)
+	ctx := context.Background()
+
+	chair2, err := store.CreateSeat(ctx, q.ID, "Chair 2")
+	if err != nil {
+		t.Fatalf("create seat: %v", err)
+	}
+	first := join(t, store, q.ID, "first")
+	join(t, store, q.ID, "second")
+
+	if _, err := store.ServeNext(ctx, q.ID, "", testOwner); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if _, err := store.SkipEntry(ctx, q.ID, first.ID, testOwner); err != nil {
+		t.Fatalf("skip: %v", err)
+	}
+
+	recalled, err := store.ServeEntry(ctx, q.ID, first.ID, chair2.ID, testOwner)
+	if err != nil {
+		t.Fatalf("recall: %v", err)
+	}
+	if recalled.Served == nil || recalled.Served.SeatID == nil || *recalled.Served.SeatID != chair2.ID {
+		t.Fatalf("recalled to %+v, want Chair 2", recalled.Served)
+	}
+	if recalled.Served.ServedAt == nil {
+		t.Error("a recalled person is there already; service should have begun")
 	}
 }
