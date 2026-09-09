@@ -71,6 +71,10 @@ type OperatorView struct {
 	// show the figure the estimates are using next to the one that was typed.
 	Measured queue.ServiceMeasure `json:"measured"`
 
+	// MeasuredBySeat is the same figure per chair, in seat order, for an
+	// owner comparing chairs and for staff reading their own.
+	MeasuredBySeat []queue.SeatMeasure `json:"measuredBySeat"`
+
 	// Arrival is how long people have been taking to turn up once called —
 	// the number a hold time should be set against.
 	Arrival queue.ServiceMeasure `json:"arrival"`
@@ -136,6 +140,11 @@ func (s *Server) operatorView(
 		return OperatorView{}, err
 	}
 
+	bySeat, err := s.store.MeasuredServiceBySeat(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+
 	openSeats := 0
 	for _, seat := range seats {
 		if seat.Active {
@@ -150,6 +159,7 @@ func (s *Server) operatorView(
 		Waiting:        []WaitingRow{},
 		ShowsNames:     withNames,
 		Measured:       measured,
+		MeasuredBySeat: bySeat,
 		Arrival:        arrival,
 		LastActivityAt: lastActivity,
 	}

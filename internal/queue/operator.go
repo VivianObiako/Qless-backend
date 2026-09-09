@@ -48,8 +48,11 @@ type ActedBy struct {
 	OperatorName string `json:"operatorName,omitempty"`
 }
 
-// HistoryEntry is a finished entry with the person who dealt with it attached.
+// HistoryEntry is a finished entry with the person who dealt with it attached,
+// and the chair they were called to by name — resolved even for a chair that
+// has since been removed, which is why seats are never deleted.
 type HistoryEntry struct {
 	Entry
-	ActedBy *ActedBy `json:"actedBy"`
+	ActedBy  *ActedBy `json:"actedBy"`
+	SeatName string   `json:"seatName"`
 }

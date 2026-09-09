@@ -93,6 +93,15 @@ func (q Queue) ServiceMinutesIn(m ServiceMeasure) int {
 	return q.AverageServiceMinutes
 }
 
+// SeatMeasure is one chair's measured service: what serving has taken
+// there lately, for an owner comparing chairs.
+type SeatMeasure struct {
+	SeatID   string `json:"seatId"`
+	SeatName string `json:"seatName"`
+	Minutes  int    `json:"minutes"`
+	Sample   int    `json:"sample"`
+}
+
 // QueueCard is a queue with the two live figures an owner reads a list by:
 // what is being served and how many are waiting.
 type QueueCard struct {

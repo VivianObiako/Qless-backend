@@ -157,3 +157,78 @@ func TestSeatEndpoints(t *testing.T) {
 		t.Fatalf("removing the last chair: %d, want 409", res.status)
 	}
 }
+
+// History carries the chair, and staff see only the rows they handled.
+func TestHistoryIsPerChairAndPerOperator(t *testing.T) {
+	op := newOperator(t, "History Chairs Shop")
+	base := "/api/queues/" + op.queue.Queue.ID
+	hired := op.hire("Ada", op.queue.Queue.ID)
+	ada := header{"Authorization", "Bearer " + op.client.signIn(hired.AccessCode).Token}
+
+	res := op.client.do(http.MethodPost, base+"/seats", []byte(`{"name":"Chair 2"}`), op.auth)
+	if res.status != http.StatusCreated {
+		t.Fatalf("create seat: %d %s", res.status, res.body)
+	}
+	var listed seatsResult
+	res = op.client.do(http.MethodGet, base+"/seats", nil, op.auth)
+	decode(t, res, &listed)
+	counter, chair2 := listed.Seats[0], listed.Seats[1]
+
+	before := op.joinAll("Vivian", "John")
+
+	// The owner serves Vivian at the counter; Ada serves John at Chair 2.
+	res = op.client.do(http.MethodPost, base+"/entries/"+before.Waiting[0].ID+"/serve",
+		mustJSON(t, map[string]string{"seatId": counter.ID}), op.auth)
+	if res.status != http.StatusOK {
+		t.Fatalf("owner serve: %d %s", res.status, res.body)
+	}
+	op.mustDo(http.MethodPost, "/entries/"+before.Waiting[0].ID+"/attend", nil)
+	res = op.client.do(http.MethodPost, base+"/entries/"+before.Waiting[1].ID+"/serve",
+		mustJSON(t, map[string]string{"seatId": chair2.ID}), ada)
+	if res.status != http.StatusOK {
+		t.Fatalf("staff serve: %d %s", res.status, res.body)
+	}
+	res = op.client.do(http.MethodPost, base+"/entries/"+before.Waiting[1].ID+"/attend", nil, ada)
+	if res.status != http.StatusOK {
+		t.Fatalf("staff attend: %d %s", res.status, res.body)
+	}
+
+	var history struct {
+		Entries []struct {
+			Number   int    `json:"number"`
+			SeatName string `json:"seatName"`
+		} `json:"entries"`
+		Seats []seatRecord `json:"seats"`
+	}
+	res = op.client.do(http.MethodGet, base+"/history", nil, op.auth)
+	decode(t, res, &history)
+	if len(history.Entries) != 2 || len(history.Seats) != 2 {
+		t.Fatalf("owner history = %+v with %d seats, want both rows and both seats", history.Entries, len(history.Seats))
+	}
+	chairs := map[int]string{}
+	for _, entry := range history.Entries {
+		chairs[entry.Number] = entry.SeatName
+	}
+	if chairs[1] != "Counter" || chairs[2] != "Chair 2" {
+		t.Fatalf("chairs in history = %v, want #1 at the counter and #2 at Chair 2", chairs)
+	}
+
+	res = op.client.do(http.MethodGet, base+"/history", nil, ada)
+	decode(t, res, &history)
+	if len(history.Entries) != 1 || history.Entries[0].Number != 2 {
+		t.Fatalf("staff history = %+v, want only the row Ada handled", history.Entries)
+	}
+
+	// The owner's counter sees service measured per chair.
+	var view struct {
+		MeasuredBySeat []struct {
+			SeatName string `json:"seatName"`
+			Sample   int    `json:"sample"`
+		} `json:"measuredBySeat"`
+	}
+	res = op.client.do(http.MethodGet, base+"/entries", nil, op.auth)
+	decode(t, res, &view)
+	if len(view.MeasuredBySeat) != 2 || view.MeasuredBySeat[0].SeatName != "Counter" {
+		t.Fatalf("measured by seat = %+v", view.MeasuredBySeat)
+	}
+}

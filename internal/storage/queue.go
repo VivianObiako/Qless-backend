@@ -226,6 +226,57 @@ func (s *Store) MeasuredService(ctx context.Context, queueID string) (queue.Serv
 		          LIMIT 10) recent`)
 }
 
+// MeasuredServiceBySeat is MeasuredService per chair, for an owner comparing
+// them: the last ten real service times at each chair in the past twelve
+// hours. Chairs with nothing served lately come back with a zero sample.
+func (s *Store) MeasuredServiceBySeat(ctx context.Context, queueID string) ([]queue.SeatMeasure, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT st.id, st.name,
+		        COALESCE((SELECT AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(served_at, started_at))) / 60)
+		                    FROM (SELECT started_at, served_at, completed_at
+		                            FROM queue_entries
+		                           WHERE seat_id = st.id AND status = 'ATTENDED'
+		                             AND started_at IS NOT NULL AND completed_at > COALESCE(served_at, started_at)
+		                             AND completed_at > now() - interval '12 hours'
+		                           ORDER BY completed_at DESC
+		                           LIMIT 10) recent), 0),
+		        (SELECT count(*)
+		           FROM (SELECT 1
+		                   FROM queue_entries
+		                  WHERE seat_id = st.id AND status = 'ATTENDED'
+		                    AND started_at IS NOT NULL AND completed_at > COALESCE(served_at, started_at)
+		                    AND completed_at > now() - interval '12 hours'
+		                  ORDER BY completed_at DESC
+		                  LIMIT 10) recent)
+		   FROM seats st
+		  WHERE st.queue_id = $1 AND st.removed_at IS NULL
+		  ORDER BY st.position, st.created_at`,
+		queueID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("measure by seat: %w", err)
+	}
+	defer rows.Close()
+
+	measures := []queue.SeatMeasure{}
+	for rows.Next() {
+		var m queue.SeatMeasure
+		var minutes float64
+		if err := rows.Scan(&m.SeatID, &m.SeatName, &minutes, &m.Sample); err != nil {
+			return nil, fmt.Errorf("scan seat measure: %w", err)
+		}
+		m.Minutes = int(math.Round(minutes))
+		if m.Sample > 0 && m.Minutes < 1 {
+			m.Minutes = 1
+		}
+		measures = append(measures, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate seat measures: %w", err)
+	}
+	return measures, nil
+}
+
 // MeasuredArrival averages how long the last ten customers took to turn up
 // after being called. Only entries where service was marked as begun count;
 // it is the evidence for tuning the hold time.

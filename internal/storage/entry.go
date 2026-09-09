@@ -459,20 +459,27 @@ func (s *Store) ResetQueue(ctx context.Context, queueID string) (int, error) {
 }
 
 // History returns the entries this queue has finished with, most recent first,
-// each carrying whoever dealt with it.
+// each carrying whoever dealt with it and the chair they were called to.
 //
 // The operator's name is joined rather than copied onto the entry, so renaming
 // a member of staff corrects the whole of their history rather than leaving it
-// stamped with a name they no longer use.
-func (s *Store) History(ctx context.Context, queueID string, limit int) ([]queue.HistoryEntry, error) {
+// stamped with a name they no longer use. The chair's name is joined for the
+// same reason, and resolves for a chair that has since been removed.
+//
+// With an operator id, only the rows that operator handled come back: the
+// line is shared, the chairs are not, and neither is the record of who
+// served whom.
+func (s *Store) History(ctx context.Context, queueID string, limit int, operatorID string) ([]queue.HistoryEntry, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+prefixed(entryColumns, "e")+`, e.acted_by_type, o.display_name
+		`SELECT `+prefixed(entryColumns, "e")+`, e.acted_by_type, o.display_name, COALESCE(st.name, '')
 		   FROM queue_entries e
 		   LEFT JOIN operators o ON o.id = e.acted_by_operator_id
+		   LEFT JOIN seats st ON st.id = e.seat_id
 		  WHERE e.queue_id = $1 AND e.status NOT IN ('WAITING', 'SERVING')
+		    AND ($3 = '' OR e.acted_by_operator_id = $3::uuid)
 		  ORDER BY e.completed_at DESC NULLS LAST, e.number DESC
 		  LIMIT $2`,
-		queueID, limit,
+		queueID, limit, operatorID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list history: %w", err)
@@ -487,12 +494,13 @@ func (s *Store) History(ctx context.Context, queueID string, limit int) ([]queue
 			presence     *string
 			actedByType  *string
 			operatorName *string
+			seatName     string
 		)
 		err := rows.Scan(
 			&entry.ID, &entry.QueueID, &entry.Number, &entry.CustomerName, &status,
 			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt, &entry.ServedAt,
 			&presence, &entry.PresenceAt, &entry.WalkIn, &entry.SeatID,
-			&actedByType, &operatorName,
+			&actedByType, &operatorName, &seatName,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan history entry: %w", err)
@@ -503,7 +511,7 @@ func (s *Store) History(ctx context.Context, queueID string, limit int) ([]queue
 			entry.Presence = &p
 		}
 
-		row := queue.HistoryEntry{Entry: entry}
+		row := queue.HistoryEntry{Entry: entry, SeatName: seatName}
 		// Absent on entries the customer ended themselves, and on everything
 		// that happened before this column existed.
 		if actedByType != nil {

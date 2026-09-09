@@ -892,8 +892,16 @@ will do).
    count; a closed chair is dimmed, never dropped; the chime sounds once
    when the set of numbers being served gains one, on any chair; the live
    region reads every chair. One chair renders as before.
-9. [ ] **History and stats.** Seat column, per-seat measured service, arrival
-   unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.*
+9. [x] **History and stats.** Seat column, per-seat measured service, arrival
+   unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.* Landed
+   9 September 2026. API: history rows carry `seatName` (resolved for a
+   removed chair too), the response carries `seats`, and staff get only the
+   rows they handled; the operator view carries `measuredBySeat`. Web: a
+   Chair column and filter appear when there is more than one chair; staff
+   see no served-by column or filter, since every row is theirs; the CSV
+   gains the chair; the counter shows service by chair under the stats for
+   the owner and their own chair's figure to staff. Arrival stays
+   queue-wide.
 10. [ ] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
    Playwright scenario for a two-seat day.
 

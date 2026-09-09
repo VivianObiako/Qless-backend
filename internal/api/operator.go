@@ -523,7 +523,19 @@ func (s *Server) queueHistory(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 
-	entries, err := s.store.History(r.Context(), q.ID, limit)
+	// Staff see only what they handled: the line is shared, the record of
+	// who served whom is not. The owner sees every row.
+	only := ""
+	if !actor.IsOwner() {
+		only = actor.ID
+	}
+	entries, err := s.store.History(r.Context(), q.ID, limit, only)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	seats, err := s.store.Seats(r.Context(), q.ID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -550,6 +562,7 @@ func (s *Server) queueHistory(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, historyResponse{
 		Queue:      q,
 		Entries:    entries,
+		Seats:      seats,
 		ShowsNames: withNames,
 		OwnerName:  ownerName,
 	})
@@ -559,6 +572,10 @@ type historyResponse struct {
 	Queue      queue.Queue          `json:"queue"`
 	Entries    []queue.HistoryEntry `json:"entries"`
 	ShowsNames bool                 `json:"showsNames"`
+
+	// Seats says how many chairs the queue has, so a history of one chair
+	// never shows a chair column, and which to offer as a filter.
+	Seats []queue.Seat `json:"seats"`
 
 	// OwnerName lets an entry the owner handled carry their name rather than
 	// "the owner". Empty when they have not given one.
