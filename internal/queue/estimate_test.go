@@ -11,6 +11,7 @@ func TestEstimateWait(t *testing.T) {
 		name        string
 		peopleAhead int
 		serviceMins int
+		openSeats   int
 		wantNil     bool
 		wantLow     int
 		wantHigh    int
@@ -54,9 +55,40 @@ func TestEstimateWait(t *testing.T) {
 			wantHigh:    5,
 			wantLabel:   "5–5 min",
 		},
+		{
+			name:        "three chairs make three ahead one turn",
+			peopleAhead: 3,
+			serviceMins: 15,
+			openSeats:   3,
+			wantLow:     10,
+			wantHigh:    20,
+			wantLabel:   "10–20 min",
+		},
+		{
+			name:        "three chairs make four ahead two turns",
+			peopleAhead: 4,
+			serviceMins: 15,
+			openSeats:   3,
+			wantLow:     25,
+			wantHigh:    35,
+			wantLabel:   "25–35 min",
+		},
+		{
+			name:        "every chair closed still counts as one",
+			peopleAhead: 3,
+			serviceMins: 15,
+			openSeats:   0,
+			wantLow:     35,
+			wantHigh:    55,
+			wantLabel:   "35–55 min",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := queue.EstimateWait(tc.peopleAhead, tc.serviceMins)
+			seats := tc.openSeats
+			if seats == 0 && tc.name != "every chair closed still counts as one" {
+				seats = 1
+			}
+			got := queue.EstimateWait(tc.peopleAhead, tc.serviceMins, seats)
 
 			if tc.wantNil {
 				if got != nil {
@@ -92,6 +124,22 @@ func TestPeopleAheadCountsLowerNumbersOnly(t *testing.T) {
 	} {
 		if got := state.PeopleAhead(tc.number); got != tc.want {
 			t.Errorf("people ahead of #%d = %d, want %d", tc.number, got, tc.want)
+		}
+	}
+}
+
+func TestTurnsAheadDividesByOpenSeats(t *testing.T) {
+	for _, tc := range []struct{ ahead, seats, want int }{
+		{ahead: 0, seats: 1, want: 0},
+		{ahead: 2, seats: 1, want: 2},
+		{ahead: 2, seats: 3, want: 0},
+		{ahead: 3, seats: 3, want: 1},
+		{ahead: 11, seats: 3, want: 3},
+		{ahead: 12, seats: 3, want: 4},
+		{ahead: 4, seats: 0, want: 4},
+	} {
+		if got := queue.TurnsAhead(tc.ahead, tc.seats); got != tc.want {
+			t.Errorf("turns ahead with %d ahead and %d seats = %d, want %d", tc.ahead, tc.seats, got, tc.want)
 		}
 	}
 }

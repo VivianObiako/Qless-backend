@@ -25,7 +25,9 @@ const (
 	rungCurrent = 3
 )
 
-// closeWithin is how many people ahead counts as "getting close".
+// closeWithin is how many turns ahead counts as "getting close". Turns, not
+// people: with three chairs the first three in line can be called at the
+// same moment.
 const closeWithin = 3
 
 // WithPush turns the nudges on. webOrigin is where a tapped notification
@@ -151,7 +153,7 @@ func (s *Server) notifyPush(queueID string) {
 			continue
 		}
 
-		msg := messageFor(rung, target.Number, ahead, q, s.webOrigin)
+		msg := messageFor(rung, target.Number, ahead, q, target.SeatName, len(state.Seats), s.webOrigin)
 		err := s.push.Send(ctx, target.Subscription, msg)
 		switch {
 		case errors.Is(err, push.ErrGone):
@@ -169,16 +171,18 @@ func (s *Server) notifyPush(queueID string) {
 	}
 }
 
-// rungFor is proximityOf, on the server.
+// rungFor is proximityOf, on the server. It ranks on turns — people ahead
+// divided by open seats — and reports the people, which is what the message
+// says.
 func rungFor(target storage.PushTarget, state queue.PublicState) (rung, ahead int) {
 	if target.Status == queue.EntryServing {
 		return rungCurrent, 0
 	}
 	ahead = state.PeopleAhead(target.Number)
-	switch {
-	case ahead == 0:
+	switch turns := queue.TurnsAhead(ahead, state.OpenSeats); {
+	case turns == 0:
 		return rungNext, ahead
-	case ahead <= closeWithin:
+	case turns <= closeWithin:
 		return rungClose, ahead
 	default:
 		return rungWaiting, ahead
@@ -186,7 +190,9 @@ func rungFor(target storage.PushTarget, state queue.PublicState) (rung, ahead in
 }
 
 // messageFor says the same thing the pass would have, in the same words.
-func messageFor(rung, number, ahead int, q queue.Queue, webOrigin string) push.Message {
+// A queue with one seat keeps "the counter"; with more, the seat is named,
+// because a customer sent nowhere in particular walks to the wrong chair.
+func messageFor(rung, number, ahead int, q queue.Queue, seatName string, seatCount int, webOrigin string) push.Message {
 	msg := push.Message{
 		URL: fmt.Sprintf("%s/q/%s", webOrigin, q.Slug),
 		// One notification per queue: getting close and then being called
@@ -197,6 +203,9 @@ func messageFor(rung, number, ahead int, q queue.Queue, webOrigin string) push.M
 	case rungCurrent:
 		msg.Title = "It's your turn"
 		msg.Body = fmt.Sprintf("#%d at %s. Head to the counter.", number, q.Name)
+		if seatCount > 1 && seatName != "" {
+			msg.Body = fmt.Sprintf("#%d at %s. Go to %s.", number, q.Name, seatName)
+		}
 	case rungNext:
 		msg.Title = "You're next"
 		msg.Body = fmt.Sprintf("#%d at %s. Be inside now.", number, q.Name)

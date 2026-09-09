@@ -815,10 +815,17 @@ will do).
    409 `no_free_seat`. A closed seat answers 409 `seat_closed`, an unknown
    one 404. The operator view carries `seats`, `servingList` and keeps
    `serving` as the most recent call; entries carry `seatId`.
-3. [ ] **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
+3. [x] **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
    kept; `EstimateWait` gains a seat divisor; `EstimateTable` follows.
    Customer view and push messages carry the seat. *API: queue/estimate.go,
-   views.go, push.go, tests.*
+   views.go, push.go, tests.* Landed 9 September 2026: the public state
+   carries `serving: [{number, seatId, seatName}]` in seat order, `seats:
+   [{id, name, active}]` with closed seats listed and removed ones left out,
+   and `openSeats`; `servingNumber` is the most recent call. The estimate is
+   `ceil(ahead / openSeats)` turns of the service figure, the push ladder
+   ranks on `TurnsAhead` (floor), and the turn push says "Go to Chair 2" on
+   a queue with more than one seat. The queues list card gains
+   `servingCount` and `openSeats`.
 4. [ ] **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
    name, order, active. Settings screen gains a "Seats" section. *API, web
    settings.*

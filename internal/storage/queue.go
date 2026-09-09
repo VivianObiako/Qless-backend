@@ -275,6 +275,8 @@ func (s *Store) LastActivity(ctx context.Context, queueID string) (*time.Time, e
 func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicState, error) {
 	state := queue.PublicState{
 		Queue:          q.Summary(),
+		Serving:        []queue.ServingSlot{},
+		Seats:          []queue.PublicSeat{},
 		WaitingNumbers: []int{},
 	}
 
@@ -284,17 +286,48 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 	}
 	state.ServiceMinutes = q.ServiceMinutesIn(measured)
 
-	var servingNumber int
-	err = s.pool.QueryRow(ctx,
-		`SELECT number FROM queue_entries WHERE queue_id = $1 AND status = 'SERVING'`, q.ID,
-	).Scan(&servingNumber)
-	switch {
-	case err == nil:
-		state.ServingNumber = &servingNumber
-	case errors.Is(err, pgx.ErrNoRows):
-		// Nobody is being served yet; leave ServingNumber nil.
-	default:
-		return queue.PublicState{}, fmt.Errorf("read serving number: %w", err)
+	seats, err := s.Seats(ctx, q.ID)
+	if err != nil {
+		return queue.PublicState{}, err
+	}
+	for _, seat := range seats {
+		state.Seats = append(state.Seats, seat.Public())
+		if seat.Active {
+			state.OpenSeats++
+		}
+	}
+
+	serving, err := s.pool.Query(ctx,
+		`SELECT e.number, s.id, s.name, e.started_at
+		   FROM queue_entries e
+		   JOIN seats s ON s.id = e.seat_id
+		  WHERE e.queue_id = $1 AND e.status = 'SERVING'
+		  ORDER BY s.position, s.created_at`,
+		q.ID,
+	)
+	if err != nil {
+		return queue.PublicState{}, fmt.Errorf("read serving numbers: %w", err)
+	}
+	defer serving.Close()
+
+	var latestCall *time.Time
+	for serving.Next() {
+		var slot queue.ServingSlot
+		var startedAt *time.Time
+		if err := serving.Scan(&slot.Number, &slot.SeatID, &slot.SeatName, &startedAt); err != nil {
+			return queue.PublicState{}, fmt.Errorf("scan serving number: %w", err)
+		}
+		state.Serving = append(state.Serving, slot)
+
+		// The most recent call is what a one-number board shows.
+		if state.ServingNumber == nil || (startedAt != nil && (latestCall == nil || startedAt.After(*latestCall))) {
+			number := slot.Number
+			state.ServingNumber = &number
+			latestCall = startedAt
+		}
+	}
+	if err := serving.Err(); err != nil {
+		return queue.PublicState{}, fmt.Errorf("iterate serving numbers: %w", err)
 	}
 
 	rows, err := s.pool.Query(ctx,
@@ -317,13 +350,10 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 	}
 
 	state.WaitingCount = len(state.WaitingNumbers)
-	state.Estimates = queue.EstimateTable(state.WaitingCount, state.ServiceMinutes)
+	state.Estimates = queue.EstimateTable(state.WaitingCount, state.ServiceMinutes, state.OpenSeats)
 
 	if q.MaxCapacity != nil {
-		active := state.WaitingCount
-		if state.ServingNumber != nil {
-			active++
-		}
+		active := state.WaitingCount + len(state.Serving)
 		state.IsFull = active >= *q.MaxCapacity
 	}
 

@@ -531,3 +531,55 @@ func TestRecallLandsOnTheSeatNamed(t *testing.T) {
 		t.Error("a recalled person is there already; service should have begun")
 	}
 }
+
+// The public state says every number being served and where, with the most
+// recent call kept as servingNumber for boards from before seats. Closed
+// seats are listed but do not count as open.
+func TestPublicStateListsEverySeat(t *testing.T) {
+	store := newTestStore(t)
+	q := newTestQueue(t, store, nil)
+	ctx := context.Background()
+
+	chair2, err := store.CreateSeat(ctx, q.ID, "Chair 2")
+	if err != nil {
+		t.Fatalf("create seat: %v", err)
+	}
+	if _, err := store.CreateSeat(ctx, q.ID, "Chair 3"); err != nil {
+		t.Fatalf("create seat: %v", err)
+	}
+	if _, err := store.Pool().Exec(ctx, `UPDATE seats SET active = false WHERE queue_id = $1 AND name = 'Chair 3'`, q.ID); err != nil {
+		t.Fatalf("close seat: %v", err)
+	}
+
+	for i := 1; i <= 5; i++ {
+		join(t, store, q.ID, fmt.Sprintf("c%d", i))
+	}
+	if _, err := store.ServeNext(ctx, q.ID, "", testOwner); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if _, err := store.ServeNext(ctx, q.ID, chair2.ID, testOwner); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+
+	state, err := store.PublicState(ctx, q)
+	if err != nil {
+		t.Fatalf("public state: %v", err)
+	}
+	if len(state.Seats) != 3 || state.OpenSeats != 2 {
+		t.Fatalf("seats = %+v open %d, want three listed and two open", state.Seats, state.OpenSeats)
+	}
+	if len(state.Serving) != 2 || state.Serving[0].Number != 1 || state.Serving[0].SeatName != "Counter" ||
+		state.Serving[1].Number != 2 || state.Serving[1].SeatName != "Chair 2" {
+		t.Fatalf("serving = %+v, want #1 on the counter and #2 on Chair 2", state.Serving)
+	}
+	if state.ServingNumber == nil || *state.ServingNumber != 2 {
+		t.Fatalf("servingNumber = %v, want the most recent call, 2", state.ServingNumber)
+	}
+	if state.WaitingCount != 3 || len(state.Estimates) != 4 {
+		t.Fatalf("waiting %d with %d estimates, want 3 and 4", state.WaitingCount, len(state.Estimates))
+	}
+	// Two open seats: one and two ahead are one turn, three ahead is two.
+	if state.Estimates[1].LowMinutes != state.Estimates[2].LowMinutes || state.Estimates[3].LowMinutes <= state.Estimates[2].LowMinutes {
+		t.Fatalf("estimates %v do not divide by two open seats", state.Estimates)
+	}
+}

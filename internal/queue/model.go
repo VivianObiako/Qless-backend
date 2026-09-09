@@ -93,7 +93,11 @@ func (q Queue) ServiceMinutesIn(m ServiceMeasure) int {
 // what is being served and how many are waiting.
 type QueueCard struct {
 	Queue
+	// ServingNumber is the most recent call, kept for the one-seat card;
+	// ServingCount of OpenSeats is what a card with chairs reads.
 	ServingNumber *int `json:"servingNumber"`
+	ServingCount  int  `json:"servingCount"`
+	OpenSeats     int  `json:"openSeats"`
 	WaitingCount  int  `json:"waitingCount"`
 }
 
@@ -157,6 +161,39 @@ type Seat struct {
 	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
+// PublicSeat is what a customer surface knows about a seat: enough to say
+// "Go to Chair 2" and to show a closed chair as closed. Seat names are
+// public the moment they are on a pass, which the settings say.
+type PublicSeat struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+}
+
+func (s Seat) Public() PublicSeat {
+	return PublicSeat{ID: s.ID, Name: s.Name, Active: s.Active}
+}
+
+// ServingSlot is one number being served and where: the wall shows the
+// number under the chair, the pass tells its holder which chair to go to.
+type ServingSlot struct {
+	Number   int    `json:"number"`
+	SeatID   string `json:"seatId"`
+	SeatName string `json:"seatName"`
+}
+
+// TurnsAhead is how many calls have to happen before a waiting customer's
+// own, with several seats calling at once: three chairs and three people
+// ahead is one turn, not three. Both ladders rank on this rather than on
+// people, or a customer hears "you're next" and "it's your turn" a second
+// apart. A queue with every seat closed still counts as one.
+func TurnsAhead(peopleAhead, openSeats int) int {
+	if openSeats < 1 {
+		openSeats = 1
+	}
+	return peopleAhead / openSeats
+}
+
 // Summary is the queue metadata safe to expose on public surfaces.
 type Summary struct {
 	ID                    string `json:"id"`
@@ -189,11 +226,23 @@ func (q Queue) Summary() Summary {
 // /me and derives their position from WaitingNumbers locally, so one client
 // never learns another customer's identity.
 type PublicState struct {
-	Queue          Summary `json:"queue"`
-	ServingNumber  *int    `json:"servingNumber"`
-	WaitingNumbers []int   `json:"waitingNumbers"`
-	WaitingCount   int     `json:"waitingCount"`
-	IsFull         bool    `json:"isFull"`
+	Queue Summary `json:"queue"`
+
+	// ServingNumber is the number called most recently. It stays so a board
+	// from before seats keeps working; Serving is the whole picture.
+	ServingNumber *int `json:"servingNumber"`
+
+	// Serving is every number being served and the seat it is at, in seat
+	// order. Seats are the queue's seats in order, closed ones included and
+	// removed ones left out; OpenSeats is how many are in service, which is
+	// what the estimate and the ladder divide by.
+	Serving   []ServingSlot `json:"serving"`
+	Seats     []PublicSeat  `json:"seats"`
+	OpenSeats int           `json:"openSeats"`
+
+	WaitingNumbers []int `json:"waitingNumbers"`
+	WaitingCount   int   `json:"waitingCount"`
+	IsFull         bool  `json:"isFull"`
 
 	// ServiceMinutes is the figure the estimates below were built from — the
 	// measured average once there is one, the setting until then.

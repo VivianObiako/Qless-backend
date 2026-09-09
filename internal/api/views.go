@@ -28,12 +28,12 @@ func (s *Server) customerView(ctx context.Context, q queue.Queue, entry *queue.E
 	view := CustomerView{
 		State:        state,
 		Entry:        entry,
-		JoinEstimate: queue.EstimateWait(state.WaitingCount, state.ServiceMinutes),
+		JoinEstimate: queue.EstimateWait(state.WaitingCount, state.ServiceMinutes, state.OpenSeats),
 	}
 
 	if entry != nil && entry.Status == queue.EntryWaiting {
 		view.PeopleAhead = state.PeopleAhead(entry.Number)
-		view.Estimate = queue.EstimateWait(view.PeopleAhead, state.ServiceMinutes)
+		view.Estimate = queue.EstimateWait(view.PeopleAhead, state.ServiceMinutes, state.OpenSeats)
 	}
 
 	return view, nil
@@ -136,6 +136,13 @@ func (s *Server) operatorView(
 		return OperatorView{}, err
 	}
 
+	openSeats := 0
+	for _, seat := range seats {
+		if seat.Active {
+			openSeats++
+		}
+	}
+
 	view := OperatorView{
 		Queue:          q,
 		ServingList:    []queue.Entry{},
@@ -162,7 +169,7 @@ func (s *Server) operatorView(
 		}
 		view.Waiting = append(view.Waiting, WaitingRow{
 			Entry:    entry,
-			Estimate: queue.EstimateWait(len(view.Waiting), serviceMinutes),
+			Estimate: queue.EstimateWait(len(view.Waiting), serviceMinutes, openSeats),
 		})
 	}
 
