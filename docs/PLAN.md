@@ -819,6 +819,69 @@ will do).
 9. **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
    Playwright scenario for a two-seat day.
 
+### Rules settled ahead of the work
+
+Found by reading every place both repositories assume one counter. Each is
+a decision, recorded so it is not re-made at the keyboard.
+
+- **The ladder divides by open seats.** "Next" is nobody ahead and "close"
+  is three or fewer, in `proximityOf` (web) and `rungFor` (API). With three
+  chairs the first three in line can be called at the same moment, so both
+  rank on `floor(peopleAhead / openSeats)`, not on `peopleAhead`. Otherwise
+  a customer hears "you're next" and "it's your turn" a second apart, and
+  the getting-close nudge comes too late.
+- **Standing down is per seat, and only when that seat is reused.** Calling
+  somebody to Chair 3 never stands down the person walking back to Chair 2.
+  `attendCurrent` takes a seat and acts on that seat's entry alone.
+- **Serve next with no seat given** picks the lowest-numbered free seat.
+  Clients always send one; the default exists for the one-seat case and
+  for old clients.
+- **Call now and recall take a seat.** With one free seat it is implied;
+  with several the counter asks, on the waiting list and the skipped list
+  alike. With none free the row is disabled, as it is today while somebody
+  is being served.
+- **A seat with somebody on it cannot be closed.** Finish with them first;
+  the switch says so. Refusing is simpler and more honest than moving them.
+- **Seats are never dropped.** History rows point at them, so a removed
+  seat is soft-deleted (`removed_at`) and stays resolvable by name.
+- **The picker is a soft lock.** Whoever picks a chair last has it; the
+  other device is moved off on its next frame and told. Nothing prevents
+  two people from sharing a chair on purpose.
+- **An open seat with nobody working it still counts** in the estimate.
+  The card says so ("Open · nobody here") and offers Close, because that is
+  the optimistic-estimate case and the owner must be able to see it.
+- **Seat names are public** the moment they are on a pass or in a push.
+  The Seats settings say so; "Chair 2" is fine, a person's name less so.
+
+### Code paths the steps above must also touch
+
+- `NewDayNotice` checks one serving entry; it needs every seat empty.
+- The busy gating of Call now (`busyWith` in `Counter.tsx`) becomes "no
+  free chair" rather than "somebody is being served".
+- The customer's board (`lib/board.ts`) highlights one serving number and
+  the pass says "you're up after 14"; both read the list.
+- The queues list card says "Serving 14 · 5 waiting"; it becomes "2 of 3
+  chairs busy · 5 waiting".
+- The wall's chime watches one number; it fires when the set of serving
+  numbers gains a new one.
+- Measured service and arrival stay queue-wide for the estimate, and gain a
+  per-seat breakdown on the counter for an owner comparing chairs.
+- The stats row's "At the counter" becomes "Chairs open · 2 of 3".
+- The seed creates the default seat; reset clears entries and leaves seats.
+- Every API and Playwright test creates a one-seat queue; the serve tests
+  gain a two-seat case, and the standing-down test a same-seat and
+  different-seat pair.
+
+### Screens beyond the first pass
+
+- **Counter on an iPad held upright.** Three cards need about 1100px side
+  by side; at 12.9" portrait the container query gives two columns, and a
+  phone gets one card per swipe.
+- **More than four chairs on the wall.** The row becomes a list: number,
+  chair, name, one per line, sized to the count.
+- **The owner's picker.** The same list as staff see plus "Show every
+  chair", which is the owner's default.
+
 ### Risks and open questions
 
 - *The socket contract.* Anything reading `servingNumber` keeps working, but
