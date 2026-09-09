@@ -884,8 +884,14 @@ will do).
    served entry is stale when its number is not in `serving[]`; the alerts
    copy counts turns; "Now serving" becomes "Last called" on a queue with
    several chairs.
-8. [ ] **The wall.** Serving numbers side by side with seat names under them,
-   sized by how many; up-next stays. *Web: DisplayBoard.tsx.*
+8. [x] **The wall.** Serving numbers side by side with seat names under them,
+   sized by how many; up-next stays. *Web: DisplayBoard.tsx.* Landed
+   9 September 2026: up to four chairs in a row, a number under each chair's
+   name with "with Ade", "free" or "closed today" beneath and a dash where
+   nobody is; above four, a list of number, chair and who, sized to the
+   count; a closed chair is dimmed, never dropped; the chime sounds once
+   when the set of numbers being served gains one, on any chair; the live
+   region reads every chair. One chair renders as before.
 9. [ ] **History and stats.** Seat column, per-seat measured service, arrival
    unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.*
 10. [ ] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
