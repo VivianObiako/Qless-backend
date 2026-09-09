@@ -968,32 +968,35 @@ are not.
 
 ### The counter with many chairs
 
-The problem: at two cards per row, six chairs push the waiting list below
-the fold, and the list is the shared resource everyone works from. The
-principles that settle it: keep the primary action within reach without
-scrolling, disclose progressively (one chair matters most to whoever is
-looking), and stay consistent between sizes.
+Direction A from the canvas, chosen on 9 September 2026, for any queue with
+more than one seat.
 
-- **The operator never has the problem.** One card, theirs, and a strip.
-- **The owner's floor view switches form by count.** Up to four chairs,
-  the cards as drawn, four to a row. From five, chairs become a ledger: one row per chair
-  with a medium numeral, the name and presence tag, the two clocks and the
-  stage's action inline, about 64px each. Six chairs is 400px, and the
-  list is still on screen. The row expands to the full card on tap, and a
-  chair the owner has picked to run themselves is always expanded.
-- **Two panes on a desktop, both scrolling on their own.** Chairs on the
-  left, the waiting list on the right and sticky, as the counter is laid
-  out today. On an iPad upright the ledger stacks above the list; at 64px
-  a row it never buries it.
-- **Beyond a handful, order by attention, not by chair number.** A ledger
-  of twelve rooms sorts itself: overdue no-shows first, then called and
-  not here, then serving, then free chairs collapsed into one line ("4
-  chairs free"). The owner reads the top of the list and acts; nothing
-  urgent is below the fold. Four low-fi directions for this are on the
-  design canvas ("Many chairs" page) and the choice is open.
-- **Serve next stays where the eye is.** In the ledger each free chair's
-  row carries its own Serve next; on the waiting list, Call now names the
-  chair when one is free and opens a short chooser when several are.
+- **A rail of tiles, one chair open.** Every chair is a small tile in a
+  rail under the stats: chair name, who works it, the number, one word of
+  state. The chair the owner opened is the counter card on the left, with
+  the waiting list beside it, exactly as the counter is laid out today.
+  One tile is open at a time; the default is the chair the owner is on, or
+  the first one otherwise. Tapping another tile swaps the card.
+- **Vermilion means called, on the tile as on the card.** A tile's number
+  is vermilion only when somebody has been called to that chair (called or
+  serving). A ready chair shows a dash in ink, a chair nobody works shows a
+  grey dash, a closed chair is dimmed.
+- **All chairs.** A button on the rail opens a page of every chair as a
+  full counter card, four to a row, with a way back. Tapping a card there
+  opens it on the counter.
+- **A chair nobody works is not a target.** Open but unstaffed, it counts
+  in the estimate and shows "Nobody at it", but it has no Serve next, Call
+  now never offers it, and its card offers only Take this chair (owner or
+  operator) and Close. That is the rule that keeps a customer from being
+  sent to an empty chair.
+- **Call now asks only when it must.** One ready chair: the row says
+  "Call to Chair 5". Several: a short chooser of ready chairs. None: the row
+  is disabled and the list says why.
+- **The operator's counter is the same screen with one tile.** Their chair
+  is open, the other tiles are visible but not openable, and the list is
+  the shared line.
+- **On an iPad upright** the rail wraps to two rows of tiles and the card
+  and list stack; tiles are 44px tall or more.
 
 ### Risks and open questions
 
