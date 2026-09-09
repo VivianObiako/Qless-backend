@@ -892,7 +892,7 @@ are not.
 | Chairs on the counter | Every chair, as cards or rows; can run one themselves | Their own chair as a card; the other chairs as a one-line strip (chair · number · name) for awareness only, no actions |
 | Waiting and skipped lists | All | All — the line is one line, and calling the next person needs it |
 | Picking a chair | Any chair; can take one somebody is on (they are told) | A free chair only: unassigned and nobody on it. Never bumps anyone |
-| Assigning chairs | Assigns and reassigns operators to chairs on the Team roster and from a chair's menu on the counter | Cannot assign; may leave their chair, or move to a free one unless the owner turns that off |
+| Assigning chairs | Assigns and reassigns operators to chairs on the Team roster and from a chair's menu on the counter. A Seats setting, **Chairs are fixed** (off by default), decides whether staff may pick | Cannot assign. With the setting off: may leave their chair or move to a free one. With it on: no picker; their counter opens on the chair the owner gave them, and an operator with no chair sees "Ask the owner for a chair" |
 | History | Every row, filterable by chair and by staff | Only entries they handled; the summary figures are theirs. No served-by column, no other staff |
 | Settings | Seats, names, open/closed, removal | None, as today |
 | Stats row | Whole queue plus per-chair service time | Whole queue: waiting, wait at the back, arrival; their own measured service |
@@ -975,8 +975,8 @@ scrolling, disclose progressively (one chair matters most to whoever is
 looking), and stay consistent between sizes.
 
 - **The operator never has the problem.** One card, theirs, and a strip.
-- **The owner's floor view switches form by count.** Up to three chairs,
-  the cards as drawn. From four, chairs become a ledger: one row per chair
+- **The owner's floor view switches form by count.** Up to four chairs,
+  the cards as drawn, four to a row. From five, chairs become a ledger: one row per chair
   with a medium numeral, the name and presence tag, the two clocks and the
   stage's action inline, about 64px each. Six chairs is 400px, and the
   list is still on screen. The row expands to the full card on tap, and a
@@ -985,6 +985,12 @@ looking), and stay consistent between sizes.
   left, the waiting list on the right and sticky, as the counter is laid
   out today. On an iPad upright the ledger stacks above the list; at 64px
   a row it never buries it.
+- **Beyond a handful, order by attention, not by chair number.** A ledger
+  of twelve rooms sorts itself: overdue no-shows first, then called and
+  not here, then serving, then free chairs collapsed into one line ("4
+  chairs free"). The owner reads the top of the list and acts; nothing
+  urgent is below the fold. Four low-fi directions for this are on the
+  design canvas ("Many chairs" page) and the choice is open.
 - **Serve next stays where the eye is.** In the ledger each free chair's
   row carries its own Serve next; on the waiting list, Call now names the
   chair when one is free and opens a short chooser when several are.
