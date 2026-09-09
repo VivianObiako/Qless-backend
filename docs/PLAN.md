@@ -882,6 +882,113 @@ a decision, recorded so it is not re-made at the keyboard.
 - **The owner's picker.** The same list as staff see plus "Show every
   chair", which is the owner's default.
 
+### Who sees what
+
+Settled with the owner on 9 September 2026. The line is shared; the chairs
+are not.
+
+| | Owner | Operator |
+|---|---|---|
+| Chairs on the counter | Every chair, as cards or rows; can run one themselves | Their own chair as a card; the other chairs as a one-line strip (chair · number · name) for awareness only, no actions |
+| Waiting and skipped lists | All | All — the line is one line, and calling the next person needs it |
+| Picking a chair | Any chair; can take one somebody is on (they are told) | A free chair only: unassigned and nobody on it. Never bumps anyone |
+| Assigning chairs | Assigns and reassigns operators to chairs on the Team roster and from a chair's menu on the counter | Cannot assign; may leave their chair, or move to a free one unless the owner turns that off |
+| History | Every row, filterable by chair and by staff | Only entries they handled; the summary figures are theirs. No served-by column, no other staff |
+| Settings | Seats, names, open/closed, removal | None, as today |
+| Stats row | Whole queue plus per-chair service time | Whole queue: waiting, wait at the back, arrival; their own measured service |
+
+### User stories
+
+**Owner**
+
+- I can add, rename, reorder, open, close and remove seats in Settings, and
+  I am told when a seat cannot be closed because somebody is on it.
+- On a one-seat queue nothing looks different from today; the moment I add
+  a second seat the counter, the pass and the wall know about chairs.
+- I can assign an operator to a chair on the Team roster, so their counter
+  opens on it, and reassign them from the chair's menu on the counter
+  during the day.
+- I see every chair on the counter and can serve from any of them myself;
+  when I pick a chair it carries my name from Profile.
+- I can call a specific waiting person to a specific free chair, and
+  recall a skipped person to one.
+- I see history for the whole queue with a Chair column and a Chair filter,
+  and per-chair measured service times so I can compare chairs.
+- I am warned in Settings when the hold time is shorter than the measured
+  arrival time, as today, and told that an open chair with nobody at it
+  makes the estimate optimistic.
+
+**Operator**
+
+- My counter opens on my chair — the one the owner assigned, or the one I
+  picked last time on this device — and shows one card: mine.
+- I see a one-line strip of the other chairs so I know the line is shared
+  and who is about to be called, and I cannot act on them.
+- I pick a chair only from those that are free; a chair somebody is on
+  shows their name and is not offered. If the owner moves me, my counter
+  follows on the next frame and tells me.
+- Serve next calls the next person in the shared line to my chair. My
+  three stages are unchanged: Start serving or Skip and hold once called,
+  Done once serving.
+- Calling somebody to my chair while my previous person never arrived
+  stands them down with their number held, exactly as today; it never
+  touches another chair's person.
+- My history shows the people I handled and my own figures, nothing else.
+
+**Customer**
+
+- My pass ranks me by turns, not people: with three chairs open, three
+  people ahead is "getting close" and nobody ahead is "you're next".
+- The estimate divides by the chairs that are open, and says the same thing
+  on the join page, the pass and the wall.
+- When called I am told which chair and who is there — "Go to Chair 2" —
+  on the pass and in the push. I say "I'm here" and hold for two minutes as
+  today.
+- If I am skipped and called back, I am told the chair again, which may be
+  a different one.
+
+**The room (wall display)**
+
+- Up to four chairs: a number under each chair name in a row; a free chair
+  shows a dash. Above four: a list of number, chair and name, with Up next
+  at the foot.
+- A closed chair shows as closed rather than disappearing, so the room
+  understands why one barber is not calling.
+- The chime sounds when a new number is called to any chair, once.
+
+**Nothing breaks**
+
+- Every existing queue gets one seat, "Counter", and renders as today.
+- `servingNumber` stays in the public state until every surface reads the
+  list; old boards keep working.
+- Hold time, recall, walk-ins, presence, pause notes, archive, the new-day
+  prompt (all chairs empty) and the standing-down rule carry over per seat.
+- The API accepts requests without a seat and picks the lowest free one, so
+  a client from before seats keeps working on a one-seat queue.
+
+### The counter with many chairs
+
+The problem: at two cards per row, six chairs push the waiting list below
+the fold, and the list is the shared resource everyone works from. The
+principles that settle it: keep the primary action within reach without
+scrolling, disclose progressively (one chair matters most to whoever is
+looking), and stay consistent between sizes.
+
+- **The operator never has the problem.** One card, theirs, and a strip.
+- **The owner's floor view switches form by count.** Up to three chairs,
+  the cards as drawn. From four, chairs become a ledger: one row per chair
+  with a medium numeral, the name and presence tag, the two clocks and the
+  stage's action inline, about 64px each. Six chairs is 400px, and the
+  list is still on screen. The row expands to the full card on tap, and a
+  chair the owner has picked to run themselves is always expanded.
+- **Two panes on a desktop, both scrolling on their own.** Chairs on the
+  left, the waiting list on the right and sticky, as the counter is laid
+  out today. On an iPad upright the ledger stacks above the list; at 64px
+  a row it never buries it.
+- **Serve next stays where the eye is.** In the ledger each free chair's
+  row carries its own Serve next; on the waiting list, Call now names the
+  chair when one is free and opens a short chooser when several are.
+
 ### Risks and open questions
 
 - *The socket contract.* Anything reading `servingNumber` keeps working, but
