@@ -843,11 +843,29 @@ will do).
    name, worker, an Open switch, ordering and removal, adds a chair, and
    carries the "Chairs are fixed" switch; the Team roster gains a chair
    picker per queue with more than one chair.
-5. [ ] **The counter.** One card per active seat, each with the three stages;
+5. [x] **The counter.** One card per active seat, each with the three stages;
    an operator's seat picker in the personal menu, remembered per device;
    Serve next on a card calls to that seat; Call now asks which seat when
    more than one is free. *Web: Counter.tsx, OperatorDashboard.tsx,
-   useOperatorQueue.ts.*
+   useOperatorQueue.ts.* Landed 9 September 2026 as direction A. A queue
+   with more than one seat gets a rail of tiles (`ChairRail.tsx`) that never
+   wraps, with the open chair as the counter card (`ChairCard.tsx`, also the
+   one-seat card, so the three stages live in one place) and the waiting
+   list beside it. Vermilion is on a tile's number only when somebody was
+   called there. An open chair nobody works has no Serve next, is never a
+   Call now target, and offers only Take this chair and Close. Call now says
+   "Call to Chair 2" with one ready chair and asks with several; with none
+   the rows are off and the list says why. The owner's picker
+   (`SeatPicker.tsx`) offers any open chair; staff see free chairs only and
+   no picker at all where chairs are fixed. An operator's counter is the
+   same screen with their tile open and the others not openable; being
+   moved off a chair is said once. `/dashboard/{id}/chairs` is All chairs,
+   four to a row, owner only. The sidebar collapses to a 64px icon rail from
+   a panel toggle in `DashboardChrome`, remembered per device. The stats row
+   says "Chairs open · 2 of 3", the queues list says "2 of 3 chairs busy",
+   and the new-day prompt waits for every chair to be empty. The API's
+   `GET /api/me/queues` gained `principalId` and the operator's name so a
+   counter can tell which chair is theirs.
 6. [ ] **The customer side.** Turn screen names the seat; the board shows every
    number being served; the pass's "up after N" reads from `serving[]`.
    *Web: TicketPass.tsx, Board.tsx, lib/board.ts.*

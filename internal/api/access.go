@@ -207,12 +207,16 @@ type myQueuesResponse struct {
 	Role   queue.PrincipalType `json:"role"`
 	Queues []queue.QueueCard   `json:"queues"`
 
+	// PrincipalID is the caller's own id: the owner's, or the operator's,
+	// which is how a counter tells which chair is theirs.
+	PrincipalID string `json:"principalId"`
+
 	// Archived is what the owner has put away, so it can be brought back.
 	// Always empty for an operator: their manager decides what they see.
 	Archived []queue.Queue `json:"archived"`
 
-	// DisplayName is what the owner asked to be called. Empty for an
-	// operator, whose name lives on the roster.
+	// DisplayName is what the owner asked to be called, or the name the
+	// owner gave an operator on the roster.
 	DisplayName string `json:"displayName"`
 }
 
@@ -228,7 +232,7 @@ func (s *Server) myQueues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := myQueuesResponse{Role: actor.Type, Queues: queues, Archived: []queue.Queue{}}
+	res := myQueuesResponse{Role: actor.Type, Queues: queues, Archived: []queue.Queue{}, PrincipalID: actor.ID}
 	if actor.IsOwner() {
 		if res.Archived, err = s.store.ArchivedQueues(r.Context(), actor.OwnerID); err != nil {
 			writeError(w, err)
@@ -238,6 +242,13 @@ func (s *Server) myQueues(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
+	} else {
+		operator, err := s.store.GetOperator(r.Context(), actor.OwnerID, actor.ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		res.DisplayName = operator.DisplayName
 	}
 	httpx.JSON(w, http.StatusOK, res)
 }
