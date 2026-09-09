@@ -819,6 +819,194 @@ will do).
 9. **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
    Playwright scenario for a two-seat day.
 
+### Rules settled ahead of the work
+
+Found by reading every place both repositories assume one counter. Each is
+a decision, recorded so it is not re-made at the keyboard.
+
+- **The ladder divides by open seats.** "Next" is nobody ahead and "close"
+  is three or fewer, in `proximityOf` (web) and `rungFor` (API). With three
+  chairs the first three in line can be called at the same moment, so both
+  rank on `floor(peopleAhead / openSeats)`, not on `peopleAhead`. Otherwise
+  a customer hears "you're next" and "it's your turn" a second apart, and
+  the getting-close nudge comes too late.
+- **Standing down is per seat, and only when that seat is reused.** Calling
+  somebody to Chair 3 never stands down the person walking back to Chair 2.
+  `attendCurrent` takes a seat and acts on that seat's entry alone.
+- **Serve next with no seat given** picks the lowest-numbered free seat.
+  Clients always send one; the default exists for the one-seat case and
+  for old clients.
+- **Call now and recall take a seat.** With one free seat it is implied;
+  with several the counter asks, on the waiting list and the skipped list
+  alike. With none free the row is disabled, as it is today while somebody
+  is being served.
+- **A seat with somebody on it cannot be closed.** Finish with them first;
+  the switch says so. Refusing is simpler and more honest than moving them.
+- **Seats are never dropped.** History rows point at them, so a removed
+  seat is soft-deleted (`removed_at`) and stays resolvable by name.
+- **The picker is a soft lock.** Whoever picks a chair last has it; the
+  other device is moved off on its next frame and told. Nothing prevents
+  two people from sharing a chair on purpose.
+- **An open seat with nobody working it still counts** in the estimate.
+  The card says so ("Open · nobody here") and offers Close, because that is
+  the optimistic-estimate case and the owner must be able to see it.
+- **Seat names are public** the moment they are on a pass or in a push.
+  The Seats settings say so; "Chair 2" is fine, a person's name less so.
+
+### Code paths the steps above must also touch
+
+- `NewDayNotice` checks one serving entry; it needs every seat empty.
+- The busy gating of Call now (`busyWith` in `Counter.tsx`) becomes "no
+  free chair" rather than "somebody is being served".
+- The customer's board (`lib/board.ts`) highlights one serving number and
+  the pass says "you're up after 14"; both read the list.
+- The queues list card says "Serving 14 · 5 waiting"; it becomes "2 of 3
+  chairs busy · 5 waiting".
+- The wall's chime watches one number; it fires when the set of serving
+  numbers gains a new one.
+- Measured service and arrival stay queue-wide for the estimate, and gain a
+  per-seat breakdown on the counter for an owner comparing chairs.
+- The stats row's "At the counter" becomes "Chairs open · 2 of 3".
+- The seed creates the default seat; reset clears entries and leaves seats.
+- Every API and Playwright test creates a one-seat queue; the serve tests
+  gain a two-seat case, and the standing-down test a same-seat and
+  different-seat pair.
+
+### Screens beyond the first pass
+
+- **Counter on an iPad held upright.** Three cards need about 1100px side
+  by side; at 12.9" portrait the container query gives two columns, and a
+  phone gets one card per swipe.
+- **More than four chairs on the wall.** The row becomes a list: number,
+  chair, name, one per line, sized to the count.
+- **The owner's picker.** The same list as staff see plus "Show every
+  chair", which is the owner's default.
+
+### Who sees what
+
+Settled with the owner on 9 September 2026. The line is shared; the chairs
+are not.
+
+| | Owner | Operator |
+|---|---|---|
+| Chairs on the counter | Every chair, as cards or rows; can run one themselves | Their own chair as a card; the other chairs as a one-line strip (chair · number · name) for awareness only, no actions |
+| Waiting and skipped lists | All | All — the line is one line, and calling the next person needs it |
+| Picking a chair | Any chair; can take one somebody is on (they are told) | A free chair only: unassigned and nobody on it. Never bumps anyone |
+| Assigning chairs | Assigns and reassigns operators to chairs on the Team roster and from a chair's menu on the counter. A Seats setting, **Chairs are fixed** (off by default), decides whether staff may pick | Cannot assign. With the setting off: may leave their chair or move to a free one. With it on: no picker; their counter opens on the chair the owner gave them, and an operator with no chair sees "Ask the owner for a chair" |
+| History | Every row, filterable by chair and by staff | Only entries they handled; the summary figures are theirs. No served-by column, no other staff |
+| Settings | Seats, names, open/closed, removal | None, as today |
+| Stats row | Whole queue plus per-chair service time | Whole queue: waiting, wait at the back, arrival; their own measured service |
+
+### User stories
+
+**Owner**
+
+- I can add, rename, reorder, open, close and remove seats in Settings, and
+  I am told when a seat cannot be closed because somebody is on it.
+- On a one-seat queue nothing looks different from today; the moment I add
+  a second seat the counter, the pass and the wall know about chairs.
+- I can assign an operator to a chair on the Team roster, so their counter
+  opens on it, and reassign them from the chair's menu on the counter
+  during the day.
+- I see every chair on the counter and can serve from any of them myself;
+  when I pick a chair it carries my name from Profile.
+- I can call a specific waiting person to a specific free chair, and
+  recall a skipped person to one.
+- I see history for the whole queue with a Chair column and a Chair filter,
+  and per-chair measured service times so I can compare chairs.
+- I am warned in Settings when the hold time is shorter than the measured
+  arrival time, as today, and told that an open chair with nobody at it
+  makes the estimate optimistic.
+
+**Operator**
+
+- My counter opens on my chair — the one the owner assigned, or the one I
+  picked last time on this device — and shows one card: mine.
+- I see a one-line strip of the other chairs so I know the line is shared
+  and who is about to be called, and I cannot act on them.
+- I pick a chair only from those that are free; a chair somebody is on
+  shows their name and is not offered. If the owner moves me, my counter
+  follows on the next frame and tells me.
+- Serve next calls the next person in the shared line to my chair. My
+  three stages are unchanged: Start serving or Skip and hold once called,
+  Done once serving.
+- Calling somebody to my chair while my previous person never arrived
+  stands them down with their number held, exactly as today; it never
+  touches another chair's person.
+- My history shows the people I handled and my own figures, nothing else.
+
+**Customer**
+
+- My pass ranks me by turns, not people: with three chairs open, three
+  people ahead is "getting close" and nobody ahead is "you're next".
+- The estimate divides by the chairs that are open, and says the same thing
+  on the join page, the pass and the wall.
+- When called I am told which chair and who is there — "Go to Chair 2" —
+  on the pass and in the push. I say "I'm here" and hold for two minutes as
+  today.
+- If I am skipped and called back, I am told the chair again, which may be
+  a different one.
+
+**The room (wall display)**
+
+- Up to four chairs: a number under each chair name in a row; a free chair
+  shows a dash. Above four: a list of number, chair and name, with Up next
+  at the foot.
+- A closed chair shows as closed rather than disappearing, so the room
+  understands why one barber is not calling.
+- The chime sounds when a new number is called to any chair, once.
+
+**Nothing breaks**
+
+- Every existing queue gets one seat, "Counter", and renders as today.
+- `servingNumber` stays in the public state until every surface reads the
+  list; old boards keep working.
+- Hold time, recall, walk-ins, presence, pause notes, archive, the new-day
+  prompt (all chairs empty) and the standing-down rule carry over per seat.
+- The API accepts requests without a seat and picks the lowest free one, so
+  a client from before seats keeps working on a one-seat queue.
+
+### The counter with many chairs
+
+Direction A from the canvas, chosen on 9 September 2026, for any queue with
+more than one seat.
+
+- **A rail of tiles, one chair open.** Every chair is a small tile in a
+  rail under the stats: chair name, who works it, the number, one word of
+  state. The chair the owner opened is the counter card on the left, with
+  the waiting list beside it, exactly as the counter is laid out today.
+  One tile is open at a time; the default is the chair the owner is on, or
+  the first one otherwise. Tapping another tile swaps the card.
+- **Vermilion means called, on the tile as on the card.** A tile's number
+  is vermilion only when somebody has been called to that chair (called or
+  serving). A ready chair shows a dash in ink, a chair nobody works shows a
+  grey dash, a closed chair is dimmed.
+- **All chairs.** A button on the rail opens a page of every chair as a
+  full counter card, four to a row, with a way back. Tapping a card there
+  opens it on the counter.
+- **A chair nobody works is not a target.** Open but unstaffed, it counts
+  in the estimate and shows "Nobody at it", but it has no Serve next, Call
+  now never offers it, and its card offers only Take this chair (owner or
+  operator) and Close. That is the rule that keeps a customer from being
+  sent to an empty chair.
+- **Call now asks only when it must.** One ready chair: the row says
+  "Call to Chair 5". Several: a short chooser of ready chairs. None: the row
+  is disabled and the list says why.
+- **The operator's counter is the same screen with one tile.** Their chair
+  is open, the other tiles are visible but not openable, and the list is
+  the shared line.
+- **The menu shrinks.** A panel icon at the top-left of the content
+  collapses the sidebar to a 64px icon rail and opens it again, remembered
+  per device. The switcher and the personal menu open from their icons;
+  every icon carries its name on hover and for a screen reader. On a wide
+  counter that is two more chair tiles in view. This is chrome, not seats:
+  it lands in `DashboardChrome` and every dashboard screen gets it.
+- **The rail never wraps.** One row that scrolls sideways, with a fade at
+  the edge to say there is more: about ten tiles in view on a desktop,
+  five on an iPad upright, three on a phone. The open chair's tile is
+  scrolled into view when the card changes. On an iPad and a phone the card
+  and the list stack underneath; tiles stay 44px or taller.
+
 ### Risks and open questions
 
 - *The socket contract.* Anything reading `servingNumber` keeps working, but
