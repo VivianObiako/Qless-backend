@@ -13,7 +13,10 @@ through on production on 5 September 2026 (create, join, presence, the
 counter's three stages, history, the display, archive). Phase 9 (the edge
 drawer) was overtaken by the Paper redesign; phase 7 (documentation) has been
 done piecemeal as screens changed. Of the original audit only multi-seat
-queues remains, and it now has a plan below.
+queues remains. Its plan below is complete as of 9 September 2026 — rules
+settled, user stories per role, the counter direction chosen (a rail of
+chairs with one open) and the screens drawn on the "Multi-seat Queues"
+design canvas — and the build has not started.
 
 Migrations run to **00009**: 00005 records a customer's presence on their
 entry, 00006 flags entries added at the counter as walk-ins, 00007 adds the
@@ -731,8 +734,13 @@ which stays in the backlog because it changes the socket contract.
 
 ## Plan — multi-seat queues
 
-The one audit item left, and the biggest structural change since owners. It
-is a plan, not a commitment: nothing below is built.
+The one audit item left, and the biggest structural change since owners.
+Planning finished 9 September 2026; nothing below is built. The screens are
+on the design canvas "Multi-seat Queues": settings and seats, the rail
+counter with one chair open (2b), All chairs (2c), the rail on an iPad
+(2d), the menu shrunk to icons (2e), the operator's and the owner's picker,
+the pass, the wall for four and for six chairs, the tabbed settings and the
+Profile screen.
 
 ### Goal
 
