@@ -194,10 +194,19 @@ type PublicSeat struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Active bool   `json:"active"`
+
+	// WorkerName is who is at the chair, so the pass can say "Kofi is ready
+	// for you". Empty when nobody is, or the owner has given no name. The
+	// owner names staff on the roster knowing it reaches the pass.
+	WorkerName string `json:"workerName"`
 }
 
 func (s Seat) Public() PublicSeat {
-	return PublicSeat{ID: s.ID, Name: s.Name, Active: s.Active}
+	public := PublicSeat{ID: s.ID, Name: s.Name, Active: s.Active}
+	if s.Worker != nil {
+		public.WorkerName = s.Worker.Name
+	}
+	return public
 }
 
 // ServingSlot is one number being served and where: the wall shows the
