@@ -796,3 +796,79 @@ choice is not re-made at the keyboard: a chair has a name a customer is sent
 to, can be closed for the afternoon, and can carry an operator later. Every
 existing queue gets one seat called "Counter", so a one-seat shop never sees
 the difference.
+
+## Multi-seat queues
+
+Built 9 September 2026 from the plan in PLAN.md, whose "Rules settled ahead
+of the work" carry the decisions made before the keyboard. These are the
+ones made at it.
+
+**The invariant moved one level down, and history came with it.** 00010
+replaced one-serving-per-queue with one-serving-per-seat and pointed every
+entry ever called at the migrated "Counter", not only the one being served.
+The alternative left every row before seats with a blank chair, on the one
+screen whose whole point is saying where somebody was served.
+
+**Serve next with no seat reuses a lone taken seat.** The plan said the
+default is the lowest free seat. A one-seat queue with somebody on it has no
+free seat, and refusing there would have broken every client from before
+seats. So: lowest free open seat; a lone taken seat is reused and its
+occupant stood down, as always; several taken seats are refused, because
+which person to stand down is not the server's guess to make.
+
+**The API allows a call to an empty chair; the counter never offers one.**
+"An open chair nobody works is not a target" is a rule about what a person
+is shown, not about the database: a one-seat counter is unstaffed in the
+data the moment nobody has tapped Take this chair, and it has to keep
+serving. So the counter draws no Serve next on such a chair, never lists it
+under Call now, and the API keeps accepting whatever seat a client names.
+
+**Standing down never stops a call.** The old "Call now" stood down whoever
+was at the counter. With several chairs it lands only on a ready chair, so
+nobody is ever stood down by a call from the list; the person on a chair is
+finished with or held from their own card. On a one-seat queue the old
+behaviour stays exactly, because there the chair is the counter.
+
+**The owner may bump, staff may not.** The picker is a soft lock — whoever
+picks last has it — but only the owner may pick a chair that is somebody's.
+Staff pick from free chairs only and never move anyone. Being moved off is
+said once, by a toast on the next frame, and a queue with fixed chairs shows
+staff no picker at all.
+
+**One worker per chair, one chair per worker per queue.** Taking a chair
+gives up any other chair the same person held in that queue, on the server,
+so two counters cannot show the same operator at two chairs. Unassigning a
+queue from an operator, or revoking them, gives their chairs up too.
+
+**Who works a chair is public.** The pass says "Ada is ready for you at
+Chair 2" because a customer sent to a chair wants to know who is there, and
+the owner names staff on the roster knowing it reaches the pass. The Seats
+settings say so beside the names.
+
+**Staff history is their own.** The line is shared; the record of who served
+whom is not. The history endpoint filters by the acting operator, and the
+screen drops the served-by column for them because every row is theirs.
+
+**A seat is never deleted, and a queue never has none.** Removal sets
+`removed_at`; the last chair cannot be removed; a chair somebody is on
+cannot be closed or removed. Refusing is simpler and more honest than moving
+the person.
+
+**Settings became tabs, each saving on its own.** Four screens in one form
+had grown past what one Save button could honestly cover. The Seats tab
+saves names and the fixed-chairs switch with its button, and does the
+structural things — add, order, open, close, remove — at once, because each
+is a rule the server answers and the answer belongs next to the switch.
+
+**The wall lists above four chairs.** Four numbers at wall size fit in a
+row; six do not. Above four the board is a list of number, chair and who,
+sized to the count, with Up next at the foot. A closed chair is dimmed
+rather than dropped, so the room can see why one barber is not calling.
+
+**The chime is keyed to the set.** It sounds when the numbers being served
+gain one they did not have, on any chair, and not when somebody finishes.
+
+**The sidebar collapses to icons.** A panel toggle at the top-left of the
+content shrinks the menu to a 64px rail and back, remembered per device.
+On a wide counter that is two more chair tiles in view. It is chrome, in
+`DashboardChrome`, so every dashboard screen has it.

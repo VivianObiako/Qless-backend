@@ -12,11 +12,13 @@ Web Push turned on. Phases 0–6, 8, 10, 11 and 12 are done and were walked
 through on production on 5 September 2026 (create, join, presence, the
 counter's three stages, history, the display, archive). Phase 9 (the edge
 drawer) was overtaken by the Paper redesign; phase 7 (documentation) has been
-done piecemeal as screens changed. Of the original audit only multi-seat
-queues remains. Its plan below is complete as of 9 September 2026 — rules
-settled, user stories per role, the counter direction chosen (a rail of
-chairs with one open) and the screens drawn on the "Multi-seat Queues"
-design canvas — and the build has not started.
+done piecemeal as screens changed. Multi-seat queues, the last of the
+original audit, was planned and built on 9 September 2026 — rules settled,
+user stories per role, the counter direction chosen (a rail of chairs with
+one open), the screens drawn on the "Multi-seat Queues" design canvas, and
+all ten steps landed on `feature/multi-seat` in both repositories, API
+first. It is not yet merged or deployed; the migrations (00010, 00011) run
+on the API's first boot after merging.
 
 Migrations run to **00009**: 00005 records a customer's presence on their
 entry, 00006 flags entries added at the counter as walk-ins, 00007 adds the
@@ -735,8 +737,8 @@ which stays in the backlog because it changes the socket contract.
 ## Plan — multi-seat queues
 
 The one audit item left, and the biggest structural change since owners.
-Planning finished 9 September 2026; the build started the same day and the
-step list below is ticked as each step lands. The screens are
+Planning finished 9 September 2026 and the build landed the same day; the
+step list below records what each step brought. The screens are
 on the design canvas "Multi-seat Queues": settings and seats, the rail
 counter with one chair open (2b), All chairs (2c), the rail on an iPad
 (2d), the menu shrunk to icons (2e), the operator's and the owner's picker,
@@ -902,8 +904,16 @@ will do).
    gains the chair; the counter shows service by chair under the stats for
    the owner and their own chair's figure to staff. Arrival stays
    queue-wide.
-10. [ ] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
-   Playwright scenario for a two-seat day.
+10. [x] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
+   Playwright scenario for a two-seat day. Landed 9 September 2026: PROMPT
+   carries the seats table, the per-seat invariant, the seat endpoints and
+   the grown payloads; DECISIONS has a "Multi-seat queues" section for the
+   calls made at the keyboard; the web README describes chairs and the
+   end-to-end tests. `e2e/seats.spec.ts` runs a two-chair day — the owner at
+   the Counter, Ada at Chair 2, a customer told "you're next" by turns and
+   sent to Chair 2, Ada's counter on her tile, the wall naming both — and a
+   second scenario for the chair nobody works. `PLAYWRIGHT_BASE_URL` points
+   the suite at a dev server on another port.
 
 ### Rules settled ahead of the work
 
@@ -1120,19 +1130,17 @@ before it is started. Multi-seat queues, the largest, has one above.
 
 **Next in line**
 
-- **Operator seat binding.** Follows multi-seat: an operator is assigned a
-  seat and their counter shows only it.
-- **Playwright for the new flows.** The suite covers customer, identity and
-  privacy from before Paper; presence, walk-ins, recall, hold time, archive
-  and the three-stage counter have backend tests only.
+- **Playwright for the older flows.** The customer, identity and privacy
+  specs predate Paper and fail on its copy ("your no."), on a status-role
+  clash with the Live indicator, and on Turbopack's own socket frames
+  reaching `captureFrames`; presence, walk-ins, recall, hold time, archive
+  and the three-stage counter have backend tests only. The two-chair day is
+  covered.
 - **Socket rate limit tuning.** One address opening many boards (a shop with
   several tablets behind one router) can trip the per-address socket limit
   and sit on "Reconnecting…". Raise it, or key it by queue as well.
 - **A "not you?" link on a recovered ticket**, for a shared phone that
   reopens somebody else's place.
-- **Close a chair for the afternoon** — a seat's `active` flag, once seats
-  exist.
-
 **Business**
 
 - **Services.** Different queues for different things — a haircut and a
