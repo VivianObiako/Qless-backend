@@ -45,6 +45,25 @@ func (o ServingOrder) Valid() bool {
 	return o == ServingInOrder || o == ServingRandom
 }
 
+// CallPhrase is what the moment of being called is named on the screens the
+// room sees: "Now serving" at a counter, "Now presenting" at a hackathon,
+// "Now seeing" at a clinic, "Now up" for anything else. It is a short list
+// rather than a free word because the phrase appears in several forms
+// ("Now presenting", "Thanks for presenting") that a typed word cannot be
+// bent into reliably; the web app holds the wording for each.
+type CallPhrase string
+
+const (
+	CallServing    CallPhrase = "SERVING"
+	CallPresenting CallPhrase = "PRESENTING"
+	CallSeeing     CallPhrase = "SEEING"
+	CallUp         CallPhrase = "UP"
+)
+
+func (p CallPhrase) Valid() bool {
+	return p == CallServing || p == CallPresenting || p == CallSeeing || p == CallUp
+}
+
 // What the people in a queue are called unless the owner says otherwise, and
 // the longest word the columns accept.
 const (
@@ -91,6 +110,10 @@ type Queue struct {
 	// guests, participant and participants.
 	PersonNoun string `json:"personNoun"`
 	PeopleNoun string `json:"peopleNoun"`
+
+	// CallPhrase is what being called is named on the wall, the join page
+	// and the pass. Serving unless the owner picks another.
+	CallPhrase CallPhrase `json:"callPhrase"`
 
 	// ResetAt is when the numbering last started again; nil for a queue
 	// never reset. A draw counts its places from here, so a number from a
@@ -304,6 +327,7 @@ type Summary struct {
 	ServingOrder ServingOrder `json:"servingOrder"`
 	PersonNoun   string       `json:"personNoun"`
 	PeopleNoun   string       `json:"peopleNoun"`
+	CallPhrase   CallPhrase   `json:"callPhrase"`
 }
 
 func (q Queue) Summary() Summary {
@@ -320,6 +344,7 @@ func (q Queue) Summary() Summary {
 		ServingOrder:          q.ServingOrder,
 		PersonNoun:            q.PersonNoun,
 		PeopleNoun:            q.PeopleNoun,
+		CallPhrase:            q.CallPhrase,
 	}
 }
 

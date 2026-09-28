@@ -22,6 +22,7 @@ type createQueueRequest struct {
 	ServingOrder string `json:"servingOrder"`
 	PersonNoun   string `json:"personNoun"`
 	PeopleNoun   string `json:"peopleNoun"`
+	CallPhrase   string `json:"callPhrase"`
 
 	// OwnerName is read only when this request creates the business. An
 	// owner adding a queue already has whatever name they gave.
@@ -52,6 +53,18 @@ func validServingOrder(raw string) (queue.ServingOrder, error) {
 		return "", invalid("Serving order must be IN_ORDER or RANDOM.")
 	}
 	return order, nil
+}
+
+// validCallPhrase reads what being called is named, blank meaning serving.
+func validCallPhrase(raw string) (queue.CallPhrase, error) {
+	if raw == "" {
+		return queue.CallServing, nil
+	}
+	phrase := queue.CallPhrase(raw)
+	if !phrase.Valid() {
+		return "", invalid("Call phrase must be SERVING, PRESENTING, SEEING or UP.")
+	}
+	return phrase, nil
 }
 
 const drawNeedsPlaces = "A draw needs a fixed number of places, from 1 to 1000."
@@ -95,6 +108,11 @@ func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 		return storage.CreateQueueParams{}, err
 	}
 
+	phrase, err := validCallPhrase(r.CallPhrase)
+	if err != nil {
+		return storage.CreateQueueParams{}, err
+	}
+
 	ownerName := strings.TrimSpace(r.OwnerName)
 	if len([]rune(ownerName)) > ownerNameLimit {
 		return storage.CreateQueueParams{}, invalid("Your name must be 60 characters or fewer.")
@@ -108,6 +126,7 @@ func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 		ServingOrder:          order,
 		PersonNoun:            personNoun,
 		PeopleNoun:            peopleNoun,
+		CallPhrase:            phrase,
 		NewOwnerName:          ownerName,
 	}, nil
 }

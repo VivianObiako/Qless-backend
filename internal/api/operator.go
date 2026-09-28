@@ -362,6 +362,7 @@ type updateQueueRequest struct {
 	ServingOrder          *string `json:"servingOrder"`
 	PersonNoun            *string `json:"personNoun"`
 	PeopleNoun            *string `json:"peopleNoun"`
+	CallPhrase            *string `json:"callPhrase"`
 }
 
 const holdMinutesLimit = 120
@@ -398,6 +399,14 @@ func (r updateQueueRequest) validate(capacityPresent bool, current queue.Queue) 
 	}
 	if order == queue.ServingRandom && capacity == nil {
 		return storage.UpdateQueueParams{}, invalid(drawNeedsPlaces)
+	}
+
+	if r.CallPhrase != nil {
+		phrase, err := validCallPhrase(*r.CallPhrase)
+		if err != nil {
+			return storage.UpdateQueueParams{}, err
+		}
+		params.CallPhrase = &phrase
 	}
 
 	if r.PersonNoun != nil {
