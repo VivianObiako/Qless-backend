@@ -158,7 +158,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, queue.ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "queue_not_found", "We couldn't find this queue.")
 	case errors.Is(err, queue.ErrEntryNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "entry_not_found", "We couldn't find that customer.")
+		httpx.WriteError(w, http.StatusNotFound, "entry_not_found", "We couldn't find that number.")
 	case errors.Is(err, queue.ErrOperatorNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "operator_not_found", "We couldn't find that operator.")
 	case errors.Is(err, queue.ErrSeatNotFound):
@@ -176,7 +176,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, queue.ErrNoFreeSeat):
 		httpx.WriteError(w, http.StatusConflict, "no_free_seat", "Every chair is taken. Finish with somebody first, or say which chair.")
 	case errors.Is(err, queue.ErrEntryNotActive):
-		httpx.WriteError(w, http.StatusConflict, "entry_not_active", "That customer has already been dealt with.")
+		httpx.WriteError(w, http.StatusConflict, "entry_not_active", "That number has already been dealt with.")
 	case errors.Is(err, queue.ErrRecallExpired):
 		httpx.WriteError(w, http.StatusConflict, "recall_expired", "It's been too long since they were skipped. They can rejoin for a new number.")
 	case errors.Is(err, queue.ErrNotInQueue):

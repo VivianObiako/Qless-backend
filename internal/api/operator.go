@@ -359,6 +359,9 @@ type updateQueueRequest struct {
 	ShowNamesToOperators  *bool   `json:"showNamesToOperators"`
 	HoldMinutes           *int    `json:"holdMinutes"`
 	SeatsFixed            *bool   `json:"seatsFixed"`
+	ServingOrder          *string `json:"servingOrder"`
+	PersonNoun            *string `json:"personNoun"`
+	PeopleNoun            *string `json:"peopleNoun"`
 }
 
 const holdMinutesLimit = 120
@@ -366,7 +369,11 @@ const holdMinutesLimit = 120
 // validate mirrors the create-time rules. A field the caller did not send is
 // left alone; maxCapacity sent as null means "no limit", which is why its
 // presence is tracked separately from its value.
-func (r updateQueueRequest) validate(capacityPresent bool) (storage.UpdateQueueParams, error) {
+//
+// The queue as it stands is needed too: a draw and no capacity is refused
+// whichever half of that the request is changing, so the check runs on what
+// the queue would look like afterwards.
+func (r updateQueueRequest) validate(capacityPresent bool, current queue.Queue) (storage.UpdateQueueParams, error) {
 	params := storage.UpdateQueueParams{
 		AverageServiceMinutes: r.AverageServiceMinutes,
 		MaxCapacitySet:        capacityPresent,
@@ -374,6 +381,38 @@ func (r updateQueueRequest) validate(capacityPresent bool) (storage.UpdateQueueP
 		ShowNamesToOperators:  r.ShowNamesToOperators,
 		HoldMinutes:           r.HoldMinutes,
 		SeatsFixed:            r.SeatsFixed,
+	}
+
+	order := current.ServingOrder
+	if r.ServingOrder != nil {
+		parsed, err := validServingOrder(*r.ServingOrder)
+		if err != nil {
+			return storage.UpdateQueueParams{}, err
+		}
+		order = parsed
+		params.ServingOrder = &parsed
+	}
+	capacity := current.MaxCapacity
+	if capacityPresent {
+		capacity = r.MaxCapacity
+	}
+	if order == queue.ServingRandom && capacity == nil {
+		return storage.UpdateQueueParams{}, invalid(drawNeedsPlaces)
+	}
+
+	if r.PersonNoun != nil {
+		noun, err := validNoun(*r.PersonNoun, queue.DefaultPersonNoun)
+		if err != nil {
+			return storage.UpdateQueueParams{}, err
+		}
+		params.PersonNoun = &noun
+	}
+	if r.PeopleNoun != nil {
+		noun, err := validNoun(*r.PeopleNoun, queue.DefaultPeopleNoun)
+		if err != nil {
+			return storage.UpdateQueueParams{}, err
+		}
+		params.PeopleNoun = &noun
 	}
 
 	if r.HoldMinutes != nil && (*r.HoldMinutes < 0 || *r.HoldMinutes > holdMinutesLimit) {
@@ -435,7 +474,7 @@ func (s *Server) updateQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params, err := req.validate(capacityPresent)
+	params, err := req.validate(capacityPresent, q)
 	if err != nil {
 		writeError(w, err)
 		return

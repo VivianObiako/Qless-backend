@@ -178,6 +178,16 @@ func rungFor(target storage.PushTarget, state queue.PublicState) (rung, ahead in
 	if target.Status == queue.EntryServing {
 		return rungCurrent, 0
 	}
+
+	// A draw has no "getting close": nobody is ahead of anybody until the
+	// moment they are drawn, and then they are next.
+	if state.Queue.IsDraw() {
+		if state.UpNextNumber != nil && *state.UpNextNumber == target.Number {
+			return rungNext, 0
+		}
+		return rungWaiting, 0
+	}
+
 	ahead = state.PeopleAhead(target.Number)
 	switch turns := queue.TurnsAhead(ahead, state.OpenSeats); {
 	case turns == 0:
@@ -209,10 +219,13 @@ func messageFor(rung, number, ahead int, q queue.Queue, seatName string, seatCou
 	case rungNext:
 		msg.Title = "You're next"
 		msg.Body = fmt.Sprintf("#%d at %s. Be inside now.", number, q.Name)
+		if q.IsDraw() {
+			msg.Body = fmt.Sprintf("#%d at %s. Get ready.", number, q.Name)
+		}
 	default:
-		people := fmt.Sprintf("%d people", ahead)
+		people := fmt.Sprintf("%d %s", ahead, q.PeopleNoun)
 		if ahead == 1 {
-			people = "One person"
+			people = "One " + q.PersonNoun
 		}
 		msg.Title = "You're getting close"
 		msg.Body = fmt.Sprintf("#%d at %s. %s ahead — start heading back.", number, q.Name, people)

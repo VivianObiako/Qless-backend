@@ -872,3 +872,53 @@ gain one they did not have, on any chair, and not when somebody finishes.
 content shrinks the menu to a 64px rail and back, remembered per device.
 On a wide counter that is two more chair tiles in view. It is chrome, in
 `DashboardChrome`, so every dashboard screen has it.
+
+## Draw mode
+
+Built 28 September 2026 for a hackathon: a fixed number of teams take a
+number, and presentations are called at random, with the next one shown.
+
+**Serving order is a setting, and a draw is a queue with a different rule
+for who is next.** `serving_order` is `IN_ORDER` or `RANDOM`, text with a
+check rather than a boolean, so a third rule needs no second migration.
+Everything else stays: numbers, the counter's three taps, hold, skip and
+recall, chairs.
+
+**One drawn ahead, stored as `drawn_at` on the entry, not a status.** A
+drawn person is still waiting in every other sense: they count for places,
+can cancel, and sit in `waitingNumbers`. A `DRAWN` status would have had to
+join every `status IN ('WAITING','SERVING')` in the schema. A partial
+unique index keeps one per queue, and the column stays after the call as
+history.
+
+**Joining never draws; the first press does.** If a join filled the empty
+slot, the first team to scan would always present first, which is the
+arrival order a draw exists to remove. So the first call of a draw comes
+with no warning, and every call after it has one.
+
+**The slot is refilled whenever it empties.** Called, skipped, marked
+served from the list, called by name or cancelled: a replacement is drawn
+in the same transaction, under the queue lock, so the wall never shows a
+gap while people wait. Calling somebody else by name leaves the draw alone.
+
+**A draw's places are required, and count every number handed out.** The
+API and a database check both refuse a draw with no capacity. Waiting,
+being served, done and skipped all hold a place; a team that has presented
+does not give one back, a team that cancels does. `reset_at` marks where
+the count starts, so a reset begins the next event with every place free.
+In order, capacity keeps its old meaning: people in line.
+
+**A draw quotes no wait and no position.** The estimate table is empty and
+`peopleAhead` is zero; a lower number is not ahead of you. The ladder has
+no "getting close": a pass hears nothing until it is drawn, then "you're
+next", then its turn. Push follows the same two rungs.
+
+**What people are called is a setting on every queue.** `person_noun` and
+`people_noun`, customer and customers by default, up to 30 characters,
+blank puts the default back. They reach the pass, the wall, the join page,
+push and the counter's "Guest 7" for somebody with no name shown. Owner-
+facing explanation in settings still says "customer".
+
+**`random()` is fair enough for a hackathon, not for a prize.** Postgres
+picks the number. It is not seeded, logged or auditable, and a draw with
+money on it would need all three.

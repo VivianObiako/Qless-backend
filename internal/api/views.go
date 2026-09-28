@@ -26,11 +26,17 @@ func (s *Server) customerView(ctx context.Context, q queue.Queue, entry *queue.E
 	}
 
 	view := CustomerView{
-		State:        state,
-		Entry:        entry,
-		JoinEstimate: queue.EstimateWait(state.WaitingCount, state.ServiceMinutes, state.OpenSeats),
+		State: state,
+		Entry: entry,
 	}
 
+	// A draw quotes no wait, and PeopleAhead is left at zero: a number's
+	// place in the draw is not a position, and nothing should read it as one.
+	if q.IsDraw() {
+		return view, nil
+	}
+
+	view.JoinEstimate = queue.EstimateWait(state.WaitingCount, state.ServiceMinutes, state.OpenSeats)
 	if entry != nil && entry.Status == queue.EntryWaiting {
 		view.PeopleAhead = state.PeopleAhead(entry.Number)
 		view.Estimate = queue.EstimateWait(view.PeopleAhead, state.ServiceMinutes, state.OpenSeats)
@@ -62,6 +68,11 @@ type OperatorView struct {
 
 	Waiting      []WaitingRow `json:"waiting"`
 	WaitingCount int          `json:"waitingCount"`
+
+	// PlacesTaken is what the capacity is measured against, the same figure
+	// the public state carries: in a draw, how many of the fixed places are
+	// gone, which is what tells the organiser whether to add some.
+	PlacesTaken int `json:"placesTaken"`
 
 	// Stood down inside the recall window, most recent first. Still theirs to
 	// be called back on; after the window they are history only.
@@ -177,13 +188,20 @@ func (s *Server) operatorView(
 			}
 			continue
 		}
-		view.Waiting = append(view.Waiting, WaitingRow{
-			Entry:    entry,
-			Estimate: queue.EstimateWait(len(view.Waiting), serviceMinutes, openSeats),
-		})
+		row := WaitingRow{Entry: entry}
+		if !q.IsDraw() {
+			row.Estimate = queue.EstimateWait(len(view.Waiting), serviceMinutes, openSeats)
+		}
+		view.Waiting = append(view.Waiting, row)
 	}
 
 	view.WaitingCount = len(view.Waiting)
+
+	taken, err := s.store.PlacesTaken(ctx, q)
+	if err != nil {
+		return OperatorView{}, err
+	}
+	view.PlacesTaken = taken
 
 	skipped, err := s.store.ListRecentlySkipped(ctx, q.ID)
 	if err != nil {

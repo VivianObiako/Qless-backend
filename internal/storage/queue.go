@@ -11,20 +11,23 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, archived_at, created_at, updated_at`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, reset_at, archived_at, created_at, updated_at`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
-	var status string
+	var status, order string
 	err := row.Scan(
 		&q.ID, &q.Name, &q.Slug, &q.Description,
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
-		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed, &q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
+		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed,
+		&order, &q.PersonNoun, &q.PeopleNoun, &q.ResetAt,
+		&q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
 	)
 	if err != nil {
 		return queue.Queue{}, err
 	}
 	q.Status = queue.Status(status)
+	q.ServingOrder = queue.ServingOrder(order)
 	return q, nil
 }
 
@@ -33,6 +36,9 @@ type CreateQueueParams struct {
 	Description           string
 	AverageServiceMinutes int
 	MaxCapacity           *int
+	ServingOrder          queue.ServingOrder
+	PersonNoun            string
+	PeopleNoun            string
 
 	// OwnerID attaches the queue to a business that already exists. Leave it
 	// empty to mint one, in which case the two hashes below are required: the
@@ -58,6 +64,18 @@ type CreateQueueResult struct {
 // collision retries the whole of it: a queues row is never left without an
 // owner, and an abandoned attempt leaves no half-made business behind.
 func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQueueResult, error) {
+	// The API fills these in; the seed and the tests call the store
+	// directly, and a queue made that way is an ordinary one.
+	if p.ServingOrder == "" {
+		p.ServingOrder = queue.ServingInOrder
+	}
+	if p.PersonNoun == "" {
+		p.PersonNoun = queue.DefaultPersonNoun
+	}
+	if p.PeopleNoun == "" {
+		p.PeopleNoun = queue.DefaultPeopleNoun
+	}
+
 	base := slugify(p.Name)
 
 	for attempt := 0; attempt < 6; attempt++ {
@@ -83,11 +101,16 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 			}
 
 			q, err := scanQueue(tx.QueryRow(ctx,
-				`INSERT INTO queues (name, slug, description, average_service_minutes, max_capacity, owner_id)
-				 VALUES ($1, $2, $3, $4, $5, $6)
+				`INSERT INTO queues (name, slug, description, average_service_minutes, max_capacity, owner_id,
+				                     serving_order, person_noun, people_noun)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 				 RETURNING `+queueColumns,
 				p.Name, slug, p.Description, p.AverageServiceMinutes, p.MaxCapacity, ownerID,
+				string(p.ServingOrder), p.PersonNoun, p.PeopleNoun,
 			))
+			if isCheckViolation(err, "random_requires_capacity") {
+				return errDrawNeedsPlaces
+			}
 			if err != nil {
 				return err
 			}
@@ -140,34 +163,106 @@ type UpdateQueueParams struct {
 	ShowNamesToOperators  *bool
 	HoldMinutes           *int
 	SeatsFixed            *bool
+	ServingOrder          *queue.ServingOrder
+	PersonNoun            *string
+	PeopleNoun            *string
 }
+
+// errDrawNeedsPlaces is the database refusing a draw with no capacity. The
+// API refuses it first; this is what two settings requests racing get.
+var errDrawNeedsPlaces = fmt.Errorf("%w: A draw needs a fixed number of places.", queue.ErrInvalidInput)
 
 // UpdateQueue applies the operator's settings. Changing the name does not
 // change the slug: a queue's URL is printed on a sheet taped to a door, and
 // renaming the business should not invalidate every code already in the wild.
+//
+// It runs under the queue lock because a change of serving order touches the
+// line: going back to serving in order drops the number a draw had picked,
+// in the same transaction, so no frame ever shows both.
 func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueueParams) (queue.Queue, error) {
-	q, err := scanQueue(s.pool.QueryRow(ctx,
-		`UPDATE queues SET
-		     name = COALESCE($2, name),
-		     description = COALESCE($3, description),
-		     average_service_minutes = COALESCE($4, average_service_minutes),
-		     max_capacity = CASE WHEN $5 THEN $6 ELSE max_capacity END,
-		     show_names_to_operators = COALESCE($7, show_names_to_operators),
-		     hold_minutes = COALESCE($8, hold_minutes),
-		     seats_fixed = COALESCE($9, seats_fixed),
-		     updated_at = now()
-		 WHERE id = $1
-		 RETURNING `+queueColumns,
-		queueID, p.Name, p.Description, p.AverageServiceMinutes,
-		p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
-	))
+	var order *string
+	if p.ServingOrder != nil {
+		value := string(*p.ServingOrder)
+		order = &value
+	}
+
+	var q queue.Queue
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		if err := lockQueue(ctx, tx, queueID); err != nil {
+			return err
+		}
+
+		var err error
+		q, err = scanQueue(tx.QueryRow(ctx,
+			`UPDATE queues SET
+			     name = COALESCE($2, name),
+			     description = COALESCE($3, description),
+			     average_service_minutes = COALESCE($4, average_service_minutes),
+			     max_capacity = CASE WHEN $5 THEN $6 ELSE max_capacity END,
+			     show_names_to_operators = COALESCE($7, show_names_to_operators),
+			     hold_minutes = COALESCE($8, hold_minutes),
+			     seats_fixed = COALESCE($9, seats_fixed),
+			     serving_order = COALESCE($10, serving_order),
+			     person_noun = COALESCE($11, person_noun),
+			     people_noun = COALESCE($12, people_noun),
+			     updated_at = now()
+			 WHERE id = $1
+			 RETURNING `+queueColumns,
+			queueID, p.Name, p.Description, p.AverageServiceMinutes,
+			p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
+			order, p.PersonNoun, p.PeopleNoun,
+		))
+		if isCheckViolation(err, "random_requires_capacity") {
+			return errDrawNeedsPlaces
+		}
+		if err != nil {
+			return fmt.Errorf("update queue: %w", err)
+		}
+
+		if !q.IsDraw() {
+			if _, err := tx.Exec(ctx,
+				`UPDATE queue_entries SET drawn_at = NULL
+				 WHERE queue_id = $1 AND status = 'WAITING' AND drawn_at IS NOT NULL`,
+				queueID,
+			); err != nil {
+				return fmt.Errorf("clear draw: %w", err)
+			}
+		}
+		return nil
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return queue.Queue{}, queue.ErrNotFound
 	}
 	if err != nil {
-		return queue.Queue{}, fmt.Errorf("update queue: %w", err)
+		return queue.Queue{}, err
 	}
 	return q, nil
+}
+
+// PlacesTaken is placesTaken outside a transaction, for the counter.
+func (s *Store) PlacesTaken(ctx context.Context, q queue.Queue) (int, error) {
+	return placesTaken(ctx, s.pool, q)
+}
+
+// placesTaken is what a queue's capacity is measured against. A queue served
+// in order counts the people in line, so a place frees up as each is served.
+// A draw counts every number handed out since the last reset: a person who
+// has presented does not free a place, a person who cancelled does.
+func placesTaken(ctx context.Context, db querier, q queue.Queue) (int, error) {
+	query := `SELECT count(*) FROM queue_entries WHERE queue_id = $1 AND status IN ('WAITING', 'SERVING')`
+	args := []any{q.ID}
+	if q.IsDraw() {
+		query = `SELECT count(*) FROM queue_entries
+		          WHERE queue_id = $1 AND status IN ('WAITING', 'SERVING', 'ATTENDED', 'SKIPPED')
+		            AND ($2::timestamptz IS NULL OR joined_at >= $2)`
+		args = append(args, q.ResetAt)
+	}
+
+	var taken int
+	if err := db.QueryRow(ctx, query, args...).Scan(&taken); err != nil {
+		return 0, fmt.Errorf("count places taken: %w", err)
+	}
+	return taken, nil
 }
 
 // SetStatus moves the queue between OPEN, PAUSED and CLOSED. Pausing and
@@ -403,11 +498,37 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 	}
 
 	state.WaitingCount = len(state.WaitingNumbers)
-	state.Estimates = queue.EstimateTable(state.WaitingCount, state.ServiceMinutes, state.OpenSeats)
 
+	// A draw quotes no wait: nobody is ahead of anybody. The table is empty
+	// rather than absent so a client indexing into it finds nothing, not an
+	// error.
+	state.Estimates = []*queue.Estimate{}
+	if !q.IsDraw() {
+		state.Estimates = queue.EstimateTable(state.WaitingCount, state.ServiceMinutes, state.OpenSeats)
+	}
+
+	if q.IsDraw() {
+		var upNext int
+		err := s.pool.QueryRow(ctx,
+			`SELECT number FROM queue_entries WHERE queue_id = $1 AND status = 'WAITING' AND drawn_at IS NOT NULL`, q.ID,
+		).Scan(&upNext)
+		switch {
+		case err == nil:
+			state.UpNextNumber = &upNext
+		case errors.Is(err, pgx.ErrNoRows):
+			// Nothing drawn yet, or nobody left to draw.
+		default:
+			return queue.PublicState{}, fmt.Errorf("read up next: %w", err)
+		}
+	}
+
+	taken, err := placesTaken(ctx, s.pool, q)
+	if err != nil {
+		return queue.PublicState{}, err
+	}
+	state.PlacesTaken = taken
 	if q.MaxCapacity != nil {
-		active := state.WaitingCount + len(state.Serving)
-		state.IsFull = active >= *q.MaxCapacity
+		state.IsFull = taken >= *q.MaxCapacity
 	}
 
 	return state, nil

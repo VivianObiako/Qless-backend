@@ -10,7 +10,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in, seat_id`
+const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in, seat_id, drawn_at`
 
 func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var e queue.Entry
@@ -19,7 +19,7 @@ func scanEntry(row pgx.Row) (queue.Entry, error) {
 	err := row.Scan(
 		&e.ID, &e.QueueID, &e.Number, &e.CustomerName, &status,
 		&e.JoinedAt, &e.StartedAt, &e.CompletedAt, &e.ServedAt,
-		&presence, &e.PresenceAt, &e.WalkIn, &e.SeatID,
+		&presence, &e.PresenceAt, &e.WalkIn, &e.SeatID, &e.DrawnAt,
 	)
 	if err != nil {
 		return queue.Entry{}, err
@@ -77,13 +77,14 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 	var entry queue.Entry
 
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		var status string
+		var status, order string
 		var maxCapacity *int
 		var nextNumber int
+		var resetAt *time.Time
 
 		err := tx.QueryRow(ctx,
-			`SELECT status, max_capacity, next_number FROM queues WHERE id = $1 FOR UPDATE`, queueID,
-		).Scan(&status, &maxCapacity, &nextNumber)
+			`SELECT status, max_capacity, next_number, serving_order, reset_at FROM queues WHERE id = $1 FOR UPDATE`, queueID,
+		).Scan(&status, &maxCapacity, &nextNumber, &order, &resetAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return queue.ErrNotFound
 		}
@@ -112,13 +113,15 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 		}
 
 		if maxCapacity != nil {
-			var active int
-			if err := tx.QueryRow(ctx,
-				`SELECT count(*) FROM queue_entries WHERE queue_id = $1 AND status IN ('WAITING', 'SERVING')`, queueID,
-			).Scan(&active); err != nil {
-				return fmt.Errorf("count active entries: %w", err)
+			taken, err := placesTaken(ctx, tx, queue.Queue{
+				ID:           queueID,
+				ServingOrder: queue.ServingOrder(order),
+				ResetAt:      resetAt,
+			})
+			if err != nil {
+				return err
 			}
-			if active >= *maxCapacity {
+			if taken >= *maxCapacity {
 				return queue.ErrQueueFull
 			}
 		}
@@ -176,17 +179,33 @@ func (s *Store) MyEntry(ctx context.Context, queueID, customerTokenHash string) 
 // Leave marks the customer's active entry as LEFT. Nothing is deleted; the
 // record stays in history and the freed slot reopens capacity.
 func (s *Store) Leave(ctx context.Context, queueID, customerTokenHash string) (queue.Entry, error) {
-	entry, err := scanEntry(s.pool.QueryRow(ctx,
-		`UPDATE queue_entries SET status = 'LEFT', completed_at = now()
-		 WHERE queue_id = $1 AND customer_token_hash = $2 AND status IN ('WAITING', 'SERVING')
-		 RETURNING `+entryColumns,
-		queueID, customerTokenHash,
-	))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return queue.Entry{}, queue.ErrNotInQueue
-	}
+	var entry queue.Entry
+
+	// Under the queue lock, because the person leaving may be the one a
+	// draw had picked, and their replacement is drawn before anyone sees
+	// the slot empty.
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		if err := lockQueue(ctx, tx, queueID); err != nil {
+			return err
+		}
+
+		var err error
+		entry, err = scanEntry(tx.QueryRow(ctx,
+			`UPDATE queue_entries SET status = 'LEFT', completed_at = now()
+			 WHERE queue_id = $1 AND customer_token_hash = $2 AND status IN ('WAITING', 'SERVING')
+			 RETURNING `+entryColumns,
+			queueID, customerTokenHash,
+		))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return queue.ErrNotInQueue
+		}
+		if err != nil {
+			return fmt.Errorf("leave queue: %w", err)
+		}
+		return fillUpNext(ctx, tx, queueID)
+	})
 	if err != nil {
-		return queue.Entry{}, fmt.Errorf("leave queue: %w", err)
+		return queue.Entry{}, err
 	}
 	return entry, nil
 }
@@ -224,6 +243,20 @@ func (s *Store) ServeNext(ctx context.Context, queueID, seatID string, actor que
 		}
 		result.Attended = attended
 
+		draw, err := isDraw(ctx, tx, queueID)
+		if err != nil {
+			return err
+		}
+
+		// In order: the lowest number. In a draw: the number already drawn
+		// as up next, or a random one if nothing has been drawn yet, which
+		// is the first call of the day and every call after the pool ran
+		// dry.
+		pick := `ORDER BY number`
+		if draw {
+			pick = `ORDER BY (drawn_at IS NOT NULL) DESC, random()`
+		}
+
 		actorType, operatorID := actedBy(actor)
 		served, err := scanEntry(tx.QueryRow(ctx,
 			`UPDATE queue_entries SET status = 'SERVING', started_at = now(),
@@ -233,7 +266,7 @@ func (s *Store) ServeNext(ctx context.Context, queueID, seatID string, actor que
 			 WHERE id = (
 				 SELECT id FROM queue_entries
 				 WHERE queue_id = $1 AND status = 'WAITING'
-				 ORDER BY number
+				 `+pick+`
 				 LIMIT 1
 			 )
 			 RETURNING `+entryColumns,
@@ -247,12 +280,55 @@ func (s *Store) ServeNext(ctx context.Context, queueID, seatID string, actor que
 			return fmt.Errorf("serve next: %w", err)
 		}
 		result.Served = &served
-		return nil
+		return fillUpNext(ctx, tx, queueID)
 	})
 	if err != nil {
 		return ServeResult{}, err
 	}
 	return result, nil
+}
+
+// isDraw reads how the queue is served, inside the transaction that is about
+// to act on it.
+func isDraw(ctx context.Context, tx pgx.Tx, queueID string) (bool, error) {
+	var order string
+	if err := tx.QueryRow(ctx, `SELECT serving_order FROM queues WHERE id = $1`, queueID).Scan(&order); err != nil {
+		return false, fmt.Errorf("read serving order: %w", err)
+	}
+	return queue.ServingOrder(order) == queue.ServingRandom, nil
+}
+
+// fillUpNext draws a number as up next if the queue is a draw and nothing is
+// drawn. Called at the end of everything that can empty the slot — a call,
+// a skip, a cancel — so the wall never shows a gap. A no-op in a queue served
+// in order, and when somebody is already drawn; the callers hold the queue
+// lock, which is what makes the check-then-draw safe.
+func fillUpNext(ctx context.Context, tx pgx.Tx, queueID string) error {
+	draw, err := isDraw(ctx, tx, queueID)
+	if err != nil {
+		return err
+	}
+	if !draw {
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE queue_entries SET drawn_at = now()
+		 WHERE id = (
+			 SELECT id FROM queue_entries
+			 WHERE queue_id = $1 AND status = 'WAITING'
+			 ORDER BY random()
+			 LIMIT 1
+		 )
+		 AND NOT EXISTS (
+			 SELECT 1 FROM queue_entries
+			 WHERE queue_id = $1 AND status = 'WAITING' AND drawn_at IS NOT NULL
+		 )`,
+		queueID,
+	); err != nil {
+		return fmt.Errorf("draw up next: %w", err)
+	}
+	return nil
 }
 
 // ServeEntry calls one specific customer to a seat: somebody waiting, out of
@@ -329,7 +405,10 @@ func (s *Store) ServeEntry(ctx context.Context, queueID, entryID, seatID string,
 			return fmt.Errorf("serve entry: %w", err)
 		}
 		result.Served = &served
-		return nil
+
+		// Calling the drawn person by name empties the slot; calling anyone
+		// else leaves the draw exactly as it was.
+		return fillUpNext(ctx, tx, queueID)
 	})
 	if err != nil {
 		return ServeResult{}, err
@@ -413,7 +492,7 @@ func (s *Store) endEntry(
 		if err != nil {
 			return fmt.Errorf("end entry: %w", err)
 		}
-		return nil
+		return fillUpNext(ctx, tx, queueID)
 	})
 	if err != nil {
 		return queue.Entry{}, err
@@ -445,8 +524,11 @@ func (s *Store) ResetQueue(ctx context.Context, queueID string) (int, error) {
 		}
 		cleared = int(tag.RowsAffected())
 
+		// reset_at is what a draw counts its places from: the numbers of the
+		// event that just ended stay in history without taking a place at
+		// the next one.
 		if _, err := tx.Exec(ctx,
-			`UPDATE queues SET next_number = 1, updated_at = now() WHERE id = $1`, queueID,
+			`UPDATE queues SET next_number = 1, reset_at = now(), updated_at = now() WHERE id = $1`, queueID,
 		); err != nil {
 			return fmt.Errorf("reset next number: %w", err)
 		}
@@ -499,7 +581,7 @@ func (s *Store) History(ctx context.Context, queueID string, limit int, operator
 		err := rows.Scan(
 			&entry.ID, &entry.QueueID, &entry.Number, &entry.CustomerName, &status,
 			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt, &entry.ServedAt,
-			&presence, &entry.PresenceAt, &entry.WalkIn, &entry.SeatID,
+			&presence, &entry.PresenceAt, &entry.WalkIn, &entry.SeatID, &entry.DrawnAt,
 			&actedByType, &operatorName, &seatName,
 		)
 		if err != nil {
