@@ -101,9 +101,27 @@ func (s *Store) PushTargets(ctx context.Context, queueID string) ([]PushTarget, 
 	return targets, nil
 }
 
-func (s *Store) MarkPushRung(ctx context.Context, id string, rung int) error {
-	if _, err := s.pool.Exec(ctx, `UPDATE push_subscriptions SET last_rung = $2 WHERE id = $1`, id, rung); err != nil {
-		return fmt.Errorf("mark push rung: %w", err)
+// ClaimPushRung records that a phone is about to be told about a rung, and
+// reports whether this caller won it. Every queue event starts its own nudge
+// pass, and two passes close together both read the old rung; marking after
+// the send let both send, so a phone heard "you're next" twice. The claim is
+// one conditional update, so exactly one pass gets true for a rung.
+func (s *Store) ClaimPushRung(ctx context.Context, id string, rung int) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE push_subscriptions SET last_rung = $2 WHERE id = $1 AND last_rung < $2`, id, rung)
+	if err != nil {
+		return false, fmt.Errorf("claim push rung: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ReleasePushRung hands a claimed rung back after a send that failed, so the
+// next frame tries again. It only undoes this caller's own claim: a later
+// pass that has since claimed a higher rung is left alone.
+func (s *Store) ReleasePushRung(ctx context.Context, id string, claimed, previous int) error {
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE push_subscriptions SET last_rung = $3 WHERE id = $1 AND last_rung = $2`, id, claimed, previous); err != nil {
+		return fmt.Errorf("release push rung: %w", err)
 	}
 	return nil
 }
