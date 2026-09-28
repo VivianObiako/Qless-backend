@@ -11,16 +11,16 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, reset_at, archived_at, created_at, updated_at`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, call_phrase, reset_at, archived_at, created_at, updated_at`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
-	var status, order string
+	var status, order, phrase string
 	err := row.Scan(
 		&q.ID, &q.Name, &q.Slug, &q.Description,
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
 		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed,
-		&order, &q.PersonNoun, &q.PeopleNoun, &q.ResetAt,
+		&order, &q.PersonNoun, &q.PeopleNoun, &phrase, &q.ResetAt,
 		&q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
 	)
 	if err != nil {
@@ -28,6 +28,7 @@ func scanQueue(row pgx.Row) (queue.Queue, error) {
 	}
 	q.Status = queue.Status(status)
 	q.ServingOrder = queue.ServingOrder(order)
+	q.CallPhrase = queue.CallPhrase(phrase)
 	return q, nil
 }
 
@@ -39,6 +40,7 @@ type CreateQueueParams struct {
 	ServingOrder          queue.ServingOrder
 	PersonNoun            string
 	PeopleNoun            string
+	CallPhrase            queue.CallPhrase
 
 	// OwnerID attaches the queue to a business that already exists. Leave it
 	// empty to mint one, in which case the two hashes below are required: the
@@ -75,6 +77,9 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 	if p.PeopleNoun == "" {
 		p.PeopleNoun = queue.DefaultPeopleNoun
 	}
+	if p.CallPhrase == "" {
+		p.CallPhrase = queue.CallServing
+	}
 
 	base := slugify(p.Name)
 
@@ -102,11 +107,11 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 
 			q, err := scanQueue(tx.QueryRow(ctx,
 				`INSERT INTO queues (name, slug, description, average_service_minutes, max_capacity, owner_id,
-				                     serving_order, person_noun, people_noun)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				                     serving_order, person_noun, people_noun, call_phrase)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 				 RETURNING `+queueColumns,
 				p.Name, slug, p.Description, p.AverageServiceMinutes, p.MaxCapacity, ownerID,
-				string(p.ServingOrder), p.PersonNoun, p.PeopleNoun,
+				string(p.ServingOrder), p.PersonNoun, p.PeopleNoun, string(p.CallPhrase),
 			))
 			if isCheckViolation(err, "random_requires_capacity") {
 				return errDrawNeedsPlaces
@@ -166,6 +171,7 @@ type UpdateQueueParams struct {
 	ServingOrder          *queue.ServingOrder
 	PersonNoun            *string
 	PeopleNoun            *string
+	CallPhrase            *queue.CallPhrase
 }
 
 // errDrawNeedsPlaces is the database refusing a draw with no capacity. The
@@ -184,6 +190,11 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 	if p.ServingOrder != nil {
 		value := string(*p.ServingOrder)
 		order = &value
+	}
+	var phrase *string
+	if p.CallPhrase != nil {
+		value := string(*p.CallPhrase)
+		phrase = &value
 	}
 
 	var q queue.Queue
@@ -205,12 +216,13 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 			     serving_order = COALESCE($10, serving_order),
 			     person_noun = COALESCE($11, person_noun),
 			     people_noun = COALESCE($12, people_noun),
+			     call_phrase = COALESCE($13, call_phrase),
 			     updated_at = now()
 			 WHERE id = $1
 			 RETURNING `+queueColumns,
 			queueID, p.Name, p.Description, p.AverageServiceMinutes,
 			p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
-			order, p.PersonNoun, p.PeopleNoun,
+			order, p.PersonNoun, p.PeopleNoun, phrase,
 		))
 		if isCheckViolation(err, "random_requires_capacity") {
 			return errDrawNeedsPlaces

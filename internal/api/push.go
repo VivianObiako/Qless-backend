@@ -153,20 +153,30 @@ func (s *Server) notifyPush(queueID string) {
 			continue
 		}
 
+		// Claimed before sending, not marked after: another event's pass may
+		// be looking at the same phone right now, and only one of us speaks.
+		won, err := s.store.ClaimPushRung(ctx, target.ID, rung)
+		if err != nil {
+			slog.Error("push: claim rung", "error", err)
+			continue
+		}
+		if !won {
+			continue
+		}
+
 		msg := messageFor(rung, target.Number, ahead, q, target.SeatName, len(state.Seats), s.webOrigin)
-		err := s.push.Send(ctx, target.Subscription, msg)
+		err = s.push.Send(ctx, target.Subscription, msg)
 		switch {
 		case errors.Is(err, push.ErrGone):
 			if err := s.store.DeletePushSubscriptionByID(ctx, target.ID); err != nil {
 				slog.Error("push: forget subscription", "error", err)
 			}
-			continue
 		case err != nil:
 			slog.Warn("push: send", "error", err, "queue", queueID, "number", target.Number)
-			continue
-		}
-		if err := s.store.MarkPushRung(ctx, target.ID, rung); err != nil {
-			slog.Error("push: mark rung", "error", err)
+			// Not delivered, so not said: the next frame tries again.
+			if err := s.store.ReleasePushRung(ctx, target.ID, rung, target.LastRung); err != nil {
+				slog.Error("push: release rung", "error", err)
+			}
 		}
 	}
 }

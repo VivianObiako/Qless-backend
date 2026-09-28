@@ -922,3 +922,27 @@ facing explanation in settings still says "customer".
 **`random()` is fair enough for a hackathon, not for a prize.** Postgres
 picks the number. It is not seeded, logged or auditable, and a draw with
 money on it would need all three.
+
+## Rate limits and the call phrase
+
+Built 28 September 2026 after a stress test of draw mode on production.
+
+**Limits key on Cloudflare's address.** Render appends to X-Forwarded-For
+rather than replacing it, so its first entry is whatever the caller wrote;
+one forged header bought a fresh join limit. `ClientIP` now reads
+`CF-Connecting-IP`, which Cloudflare sets on every request to a Render
+service and overwrites if a client sends one, and falls back to the old
+header only where there is no Cloudflare in front.
+
+**A draw has its own, wider join limit.** Five joins a minute per address
+per queue turned away the sixth team on a venue's shared Wi-Fi. A draw
+allows sixty a minute; its fixed places already cap what a flood could take.
+A queue served in order keeps five.
+
+**What being called is named is a short list, not a word.** "Now serving"
+is shop language; a hackathon is presenting, a clinic is seeing. The owner
+picks Serving, Presenting, Seeing or Up, and the wall, the join page and the
+pass follow. A free word was rejected because the phrase appears in several
+forms ("Now presenting", "presenting", "Thanks for presenting") that a typed
+word cannot be bent into; the web app holds each form for each choice. It is
+independent of serving order, and the owner's own counter keeps "serving".
