@@ -90,15 +90,32 @@ queues
   status  OPEN | PAUSED | CLOSED
   next_number int default 1
   owner_id fk · show_names_to_operators bool default false
+  hold_minutes int default 10 · pause_note · archived_at null
+  seats_fixed bool default false                    00011
+  created_at · updated_at
+
+seats                                              00010, 00011
+  id uuid pk · queue_id fk · name · position int
+  active bool default true · removed_at null
+  worker_operator_id fk null · worked_by_owner bool default false
   created_at · updated_at
 
 queue_entries
   id uuid pk · queue_id fk · number int
   customer_name · customer_token_hash
   status  WAITING | SERVING | ATTENDED | SKIPPED | LEFT | CLEARED
-  joined_at · started_at · completed_at
+  joined_at · started_at · served_at null · completed_at
+  presence null · presence_at null · walk_in bool
+  seat_id fk null                                   00010
   acted_by_type null · acted_by_operator_id fk null
 ```
+
+A seat is a place a customer is sent to — a chair, a counter, an exam room.
+Every queue has at least one; 00010 gave every existing queue one called
+"Counter" and pointed every entry ever called at it. A seat is never
+deleted: `removed_at` takes it out of every list while history keeps
+resolving its name. `worker_*` says who is at the chair — an operator, or
+the owner — and `seat_has_one_worker` forbids both.
 
 A session token points at exactly one principal — `principal_matches_type`
 pins an OWNER row to an owner and no operator, and the reverse — and many rows
@@ -110,7 +127,8 @@ resolving to a name.
 
 **Invariants — enforce in the database, not application code:**
 
-- `one_serving_per_queue` — `UNIQUE (queue_id) WHERE status = 'SERVING'`. At most one customer being served per queue. There is no `current_entry_id` column; the current customer is derived from status. One source of truth. Parallel service points would begin by replacing this index — see the multi-seat entry in PLAN.md's backlog.
+- `one_serving_per_seat` — `UNIQUE (seat_id) WHERE status = 'SERVING'`, with `serving_has_seat` requiring a seat on every SERVING row. At most one customer being served per seat; a queue serves as many people as it has open seats. There is no `current_entry_id` column; who is being served is derived from status. One source of truth. 00010 replaced the earlier `one_serving_per_queue`.
+- `one_seat_per_operator_per_queue` — `UNIQUE (queue_id, worker_operator_id) WHERE worker_operator_id IS NOT NULL AND removed_at IS NULL`. An operator works one chair per queue.
 - `one_active_entry_per_number` — `UNIQUE (queue_id, number) WHERE status IN ('WAITING','SERVING')`. Partial, not total: 00003 narrowed it because "reset restarts numbering at 1" and "history is preserved" are otherwise mutually exclusive — the first customer of the new day collides with the cleared number 1 from the old one.
 - `one_active_entry_per_token` — `UNIQUE (queue_id, customer_token_hash) WHERE status IN ('WAITING','SERVING')`. Duplicate prevention, in the database rather than in a check-then-insert.
 - Indexes on `(queue_id, status)`, `(queue_id, number)` and `(customer_token_hash)`
@@ -192,11 +210,19 @@ POST   /api/queues/{key}/close|reset                                   [owner]
 POST   /api/queues/{key}/archive|unarchive                             [owner]
 POST   /api/queues/{key}/pause                  optional {note}        [access]
 POST   /api/queues/{key}/resume                                        [access]
-POST   /api/queues/{key}/next                   serve next             [access]
+POST   /api/queues/{key}/next                   serve next, optional {seatId} [access]
 POST   /api/queues/{key}/entries                add a walk-in          [access]
-POST   /api/queues/{key}/entries/{entryId}/serve|attend|skip|start     [access]
+POST   /api/queues/{key}/entries/{entryId}/serve   call or recall, optional {seatId} [access]
+POST   /api/queues/{key}/entries/{entryId}/attend|skip|start           [access]
 GET    /api/queues/{key}/entries                the dashboard's own view [access]
-GET    /api/queues/{key}/history                ?limit= up to 1000, default 200 [access]
+GET    /api/queues/{key}/history                ?limit= up to 1000, default 200; staff get their own rows [access]
+
+GET    /api/queues/{key}/seats                  the chairs in order    [access]
+POST   /api/queues/{key}/seats                  add a chair {name}     [owner]
+PATCH  /api/queues/{key}/seats/{seatId}         name, position, active, worker [owner]
+DELETE /api/queues/{key}/seats/{seatId}         remove (soft)          [owner]
+POST   /api/queues/{key}/seats/{seatId}/take    sit down here          [access]
+POST   /api/queues/{key}/seats/{seatId}/leave   get up                 [access]
 
 POST   /api/queues/{key}/join                   join
 GET    /api/queues/{key}/me                     my active entry (customer token)
@@ -214,9 +240,20 @@ forgetting to be wrapped in one.
 
 **Events:** `QUEUE_UPDATED · CUSTOMER_JOINED · CUSTOMER_LEFT · CUSTOMER_SKIPPED · CUSTOMER_SERVED · CUSTOMER_ATTENDED · CUSTOMER_PRESENCE · QUEUE_PAUSED · QUEUE_RESUMED · QUEUE_CLOSED · QUEUE_RESET`
 
-**Standing down.** Calling anybody while somebody is at the counter stands
-that person down: attended if their service had begun (`servedAt` set),
-skipped and held if it had not.
+**Seats.** A call lands on a seat. `next` and `serve` take `{seatId}`; with
+none, the lowest free open seat is used, a lone taken seat is reused, and
+several taken seats answer `no_free_seat` (409). A closed seat answers
+`seat_closed` (409), an unknown one 404. A chair somebody is being served at
+cannot be closed or removed (`seat_occupied`), the last chair cannot be
+removed (`last_seat`), and duplicate names are refused. `take` lets the owner
+sit at any open chair, bumping whoever held it; staff only at a free chair
+— nobody's, nobody on it — and not at all where `seatsFixed` is on
+(`seats_fixed`, 409). Unassigning or revoking an operator gives their chairs
+up.
+
+**Standing down is per seat.** Calling anybody to a seat stands down the
+person on that seat: attended if their service had begun (`servedAt` set),
+skipped and held if it had not. Nobody on any other seat is touched.
 
 **Skip is not final.** A skipped entry keeps its number for the queue's
 `holdMinutes` and can be served (recalled) in that window. After it the number
@@ -224,16 +261,21 @@ may have been reissued, and the call is refused with `recall_expired` (409).
 The dashboard view lists the entries still inside the window as `skipped`.
 A hold time of zero makes a skip final.
 
-**Estimates learn.** `averageServiceMinutes` is the starting figure. Once the
-last twelve hours hold five real service times, every estimate uses the
-average of the last ten, and the public state says which figure it used in
-`serviceMinutes`. A service time runs from `servedAt` — when the person was
+**Estimates learn, and divide by open seats.** `averageServiceMinutes` is the
+starting figure. Once the last twelve hours hold five real service times,
+every estimate uses the average of the last ten, and the public state says
+which figure it used in `serviceMinutes`. The wait for `n` people ahead is
+`ceil(n / openSeats)` turns of that figure; a closed chair drops out of the
+divisor, an open chair nobody works does not. The push ladder and the pass
+rank on `floor(n / openSeats)`, so three chairs and three people ahead is
+"you're next". A service time runs from `servedAt` — when the person was
 actually at the counter — to done, falling back to the call for an entry
 nobody marked. `servedAt` is inferred from presence and recall, or set by
 `start`.
 
 **Push.** With VAPID keys configured, the server sends each subscribed phone
 the three nudges — close, next, your turn — once per rung, after the frame.
+On a queue with more than one chair the turn nudge says "Go to Chair 2".
 Without keys the key endpoint answers 404 and the pass nudges from the page.
 
 **Walk-ins.** Staff can add a person who has no phone; the entry is flagged
@@ -241,8 +283,8 @@ Without keys the key endpoint answers 404 and the pass nudges from the page.
 
 **Payloads are scoped by audience — this is a privacy requirement, not a nicety.**
 
-- *Public* (customers, display screens): `{ queue, servingNumber, waitingNumbers: number[], waitingCount, isFull, estimates }`. **No names** — the key is not blank, it is absent. A customer knows their own number from `/me` and computes their position from `waitingNumbers` locally, so no client ever receives another customer's name.
-- *Owner* (session token presented on connect): the above plus full entries with names. Always.
+- *Public* (customers, display screens): `{ queue, servingNumber, serving: [{number, seatId, seatName}], seats: [{id, name, active, workerName}], openSeats, waitingNumbers: number[], waitingCount, isFull, serviceMinutes, estimates }`. **No customer names** — the key is not blank, it is absent. A customer knows their own number from `/me` and computes their position from `waitingNumbers` locally, so no client ever receives another customer's name. `servingNumber` is the most recent call, kept for boards from before seats; `serving` is the whole picture. Seat names and who works them are public by design: the pass says "Go to Chair 2, Ada is ready for you", and the Seats settings say so.
+- *Owner* (session token presented on connect): the above plus full entries with names, `seats` with their workers, `servingList` (one entry per seat), `measuredBySeat`. Always.
 - *Staff* (an operator's session): the owner's frame when the queue's `show_names_to_operators` is on — byte for byte, not a re-render — and a redacted one when it is off, with `customerName` blank and `showsNames: false` alongside it, so the client renders a queue of numbers deliberately rather than looking broken.
 
 Three audiences, three frames, decided per event rather than per connection: an

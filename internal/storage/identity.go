@@ -210,7 +210,10 @@ func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.
 	// The two live figures ride along as subselects: one query for the list
 	// however many queues an owner runs, and the list can say which one
 	// needs attention without opening each.
-	live := `(SELECT number FROM queue_entries e WHERE e.queue_id = q.id AND e.status = 'SERVING'),
+	live := `(SELECT number FROM queue_entries e WHERE e.queue_id = q.id AND e.status = 'SERVING'
+	           ORDER BY started_at DESC NULLS LAST LIMIT 1),
+	         (SELECT count(*) FROM queue_entries e WHERE e.queue_id = q.id AND e.status = 'SERVING'),
+	         (SELECT count(*) FROM seats s WHERE s.queue_id = q.id AND s.removed_at IS NULL AND s.active),
 	         (SELECT count(*) FROM queue_entries e WHERE e.queue_id = q.id AND e.status = 'WAITING')`
 
 	query := `SELECT ` + prefixed(queueColumns, "q") + `, ` + live + `
@@ -241,9 +244,9 @@ func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.
 		err := rows.Scan(
 			&card.ID, &card.Name, &card.Slug, &card.Description,
 			&card.AverageServiceMinutes, &card.MaxCapacity, &status, &card.NextNumber,
-			&card.ShowNamesToOperators, &card.HoldMinutes, &card.PauseNote, &card.ArchivedAt,
+			&card.ShowNamesToOperators, &card.HoldMinutes, &card.PauseNote, &card.SeatsFixed, &card.ArchivedAt,
 			&card.CreatedAt, &card.UpdatedAt,
-			&serving, &card.WaitingCount,
+			&serving, &card.ServingCount, &card.OpenSeats, &card.WaitingCount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan queue card: %w", err)

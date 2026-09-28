@@ -12,11 +12,13 @@ Web Push turned on. Phases 0–6, 8, 10, 11 and 12 are done and were walked
 through on production on 5 September 2026 (create, join, presence, the
 counter's three stages, history, the display, archive). Phase 9 (the edge
 drawer) was overtaken by the Paper redesign; phase 7 (documentation) has been
-done piecemeal as screens changed. Of the original audit only multi-seat
-queues remains. Its plan below is complete as of 9 September 2026 — rules
-settled, user stories per role, the counter direction chosen (a rail of
-chairs with one open) and the screens drawn on the "Multi-seat Queues"
-design canvas — and the build has not started.
+done piecemeal as screens changed. Multi-seat queues, the last of the
+original audit, was planned and built on 9 September 2026 — rules settled,
+user stories per role, the counter direction chosen (a rail of chairs with
+one open), the screens drawn on the "Multi-seat Queues" design canvas, and
+all ten steps landed on `feature/multi-seat` in both repositories, API
+first. It is not yet merged or deployed; the migrations (00010, 00011) run
+on the API's first boot after merging.
 
 Migrations run to **00009**: 00005 records a customer's presence on their
 entry, 00006 flags entries added at the counter as walk-ins, 00007 adds the
@@ -735,7 +737,8 @@ which stays in the backlog because it changes the socket contract.
 ## Plan — multi-seat queues
 
 The one audit item left, and the biggest structural change since owners.
-Planning finished 9 September 2026; nothing below is built. The screens are
+Planning finished 9 September 2026 and the build landed the same day; the
+step list below records what each step brought. The screens are
 on the design canvas "Multi-seat Queues": settings and seats, the rail
 counter with one chair open (2b), All chairs (2c), the rail on an iPad
 (2d), the menu shrunk to icons (2e), the operator's and the owner's picker,
@@ -798,34 +801,119 @@ will do).
 
 ### Steps
 
-1. **Migration 00010.** `seats` table; `seat_id` on `queue_entries`; replace
+1. [x] **Migration 00010.** `seats` table; `seat_id` on `queue_entries`; replace
    `one_serving_per_queue` with `one_serving_per_seat`; backfill one seat per
    queue and point every SERVING entry at it. *API: migrations, storage.*
-2. **Model and storage.** `Seat` type; `ServeNext`/`ServeEntry` take a seat;
+   Landed 9 September 2026: every called entry in history is pointed at the
+   counter too, a serving entry must name its seat, `CreateQueue` inserts the
+   default seat, and a call lands on the first open seat until step 2 lets
+   callers say which.
+2. [x] **Model and storage.** `Seat` type; `ServeNext`/`ServeEntry` take a seat;
    `attendCurrent` stands down that seat's entry; `ListActiveEntries`
    carries `seatId`; `MeasuredService`/`Arrival` unchanged. *API: queue,
-   storage, api handlers, tests.*
-3. **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
+   storage, api handlers, tests.* Landed 9 September 2026: `POST …/next`
+   and `…/serve` take an optional `{seatId}`; with none the lowest free open
+   seat is used, a lone taken seat is reused, and several taken seats answer
+   409 `no_free_seat`. A closed seat answers 409 `seat_closed`, an unknown
+   one 404. The operator view carries `seats`, `servingList` and keeps
+   `serving` as the most recent call; entries carry `seatId`.
+3. [x] **Public state and estimate.** `serving[]`, `seats[]`, `servingNumber`
    kept; `EstimateWait` gains a seat divisor; `EstimateTable` follows.
    Customer view and push messages carry the seat. *API: queue/estimate.go,
-   views.go, push.go, tests.*
-4. **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
+   views.go, push.go, tests.* Landed 9 September 2026: the public state
+   carries `serving: [{number, seatId, seatName}]` in seat order, `seats:
+   [{id, name, active}]` with closed seats listed and removed ones left out,
+   and `openSeats`; `servingNumber` is the most recent call. The estimate is
+   `ceil(ahead / openSeats)` turns of the service figure, the push ladder
+   ranks on `TurnsAhead` (floor), and the turn push says "Go to Chair 2" on
+   a queue with more than one seat. The queues list card gains
+   `servingCount` and `openSeats`.
+4. [x] **Seat settings.** `GET/POST/PATCH /api/queues/{key}/seats` (owner):
    name, order, active. Settings screen gains a "Seats" section. *API, web
-   settings.*
-5. **The counter.** One card per active seat, each with the three stages;
+   settings.* Landed 9 September 2026. API: migration 00011 puts a worker
+   on a seat (an operator, or the owner) and `seats_fixed` on the queue;
+   `GET …/seats` is shared with staff, `POST`, `PATCH` (name, position,
+   active, `worker`) and `DELETE` are the owner's, and `…/seats/{id}/take`
+   and `/leave` are each person's own. A chair somebody is on cannot be
+   closed or removed (409 `seat_occupied`), the last chair cannot be removed
+   (409 `last_seat`), an operator cannot take a chair that is somebody's
+   (409 `seat_taken`) or any chair where chairs are fixed (409
+   `seats_fixed`); the owner may take any. Unassigning or revoking an
+   operator gives their chairs up. Web: Settings is four tabs — General,
+   Seats, Waiting, Privacy — each saving on its own, with a prompt before
+   leaving a tab with unsaved changes; the Seats tab lists chairs with
+   name, worker, an Open switch, ordering and removal, adds a chair, and
+   carries the "Chairs are fixed" switch; the Team roster gains a chair
+   picker per queue with more than one chair.
+5. [x] **The counter.** One card per active seat, each with the three stages;
    an operator's seat picker in the personal menu, remembered per device;
    Serve next on a card calls to that seat; Call now asks which seat when
    more than one is free. *Web: Counter.tsx, OperatorDashboard.tsx,
-   useOperatorQueue.ts.*
-6. **The customer side.** Turn screen names the seat; the board shows every
+   useOperatorQueue.ts.* Landed 9 September 2026 as direction A. A queue
+   with more than one seat gets a rail of tiles (`ChairRail.tsx`) that never
+   wraps, with the open chair as the counter card (`ChairCard.tsx`, also the
+   one-seat card, so the three stages live in one place) and the waiting
+   list beside it. Vermilion is on a tile's number only when somebody was
+   called there. An open chair nobody works has no Serve next, is never a
+   Call now target, and offers only Take this chair and Close. Call now says
+   "Call to Chair 2" with one ready chair and asks with several; with none
+   the rows are off and the list says why. The owner's picker
+   (`SeatPicker.tsx`) offers any open chair; staff see free chairs only and
+   no picker at all where chairs are fixed. An operator's counter is the
+   same screen with their tile open and the others not openable; being
+   moved off a chair is said once. `/dashboard/{id}/chairs` is All chairs,
+   four to a row, owner only. The sidebar collapses to a 64px icon rail from
+   a panel toggle in `DashboardChrome`, remembered per device. The stats row
+   says "Chairs open · 2 of 3", the queues list says "2 of 3 chairs busy",
+   and the new-day prompt waits for every chair to be empty. The API's
+   `GET /api/me/queues` gained `principalId` and the operator's name so a
+   counter can tell which chair is theirs.
+6. [x] **Profile.** Landed 9 September 2026, reached from the personal menu
+   at `/profile`: name (the owner's to edit; an operator's is the roster's),
+   where you work (each queue with its chair count and a chair picker under
+   the same rules as the counter's), appearance, and devices (sign out
+   others for the owner, sign out this one for anybody). The name dialog in
+   the personal menu is retired in its favour.
+7. [x] **The customer side.** Turn screen names the seat; the board shows every
    number being served; the pass's "up after N" reads from `serving[]`.
-   *Web: TicketPass.tsx, Board.tsx, lib/board.ts.*
-7. **The wall.** Serving numbers side by side with seat names under them,
-   sized by how many; up-next stays. *Web: DisplayBoard.tsx.*
-8. **History and stats.** Seat column, per-seat measured service, arrival
-   unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.*
-9. **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
-   Playwright scenario for a two-seat day.
+   *Web: TicketPass.tsx, Board.tsx, lib/board.ts.* Landed 9 September 2026.
+   `proximityOf` ranks on `turnsAhead(peopleAhead, openSeats)`, the same
+   floor the API's push ladder uses; the board lists one row per chair,
+   named when there is more than one; "You're up after 14 and 15" lists
+   every number being served; the turn screen says "Go to Chair 2" and
+   "Ada is ready for you at Ade's Barbershop", which is why the public seat
+   now carries `workerName`; the in-page and push nudges say the chair; a
+   served entry is stale when its number is not in `serving[]`; the alerts
+   copy counts turns; "Now serving" becomes "Last called" on a queue with
+   several chairs.
+8. [x] **The wall.** Serving numbers side by side with seat names under them,
+   sized by how many; up-next stays. *Web: DisplayBoard.tsx.* Landed
+   9 September 2026: up to four chairs in a row, a number under each chair's
+   name with "with Ade", "free" or "closed today" beneath and a dash where
+   nobody is; above four, a list of number, chair and who, sized to the
+   count; a closed chair is dimmed, never dropped; the chime sounds once
+   when the set of numbers being served gains one, on any chair; the live
+   region reads every chair. One chair renders as before.
+9. [x] **History and stats.** Seat column, per-seat measured service, arrival
+   unchanged. *Web: QueueHistory.tsx, Counter.tsx stats.* Landed
+   9 September 2026. API: history rows carry `seatName` (resolved for a
+   removed chair too), the response carries `seats`, and staff get only the
+   rows they handled; the operator view carries `measuredBySeat`. Web: a
+   Chair column and filter appear when there is more than one chair; staff
+   see no served-by column or filter, since every row is theirs; the CSV
+   gains the chair; the counter shows service by chair under the stats for
+   the owner and their own chair's figure to staff. Arrival stays
+   queue-wide.
+10. [x] **Docs and tests.** PROMPT's data model and contract, DECISIONS, README;
+   Playwright scenario for a two-seat day. Landed 9 September 2026: PROMPT
+   carries the seats table, the per-seat invariant, the seat endpoints and
+   the grown payloads; DECISIONS has a "Multi-seat queues" section for the
+   calls made at the keyboard; the web README describes chairs and the
+   end-to-end tests. `e2e/seats.spec.ts` runs a two-chair day — the owner at
+   the Counter, Ada at Chair 2, a customer told "you're next" by turns and
+   sent to Chair 2, Ada's counter on her tile, the wall naming both — and a
+   second scenario for the chair nobody works. `PLAYWRIGHT_BASE_URL` points
+   the suite at a dev server on another port.
 
 ### Rules settled ahead of the work
 
@@ -1042,19 +1130,17 @@ before it is started. Multi-seat queues, the largest, has one above.
 
 **Next in line**
 
-- **Operator seat binding.** Follows multi-seat: an operator is assigned a
-  seat and their counter shows only it.
-- **Playwright for the new flows.** The suite covers customer, identity and
-  privacy from before Paper; presence, walk-ins, recall, hold time, archive
-  and the three-stage counter have backend tests only.
+- **Playwright for the older flows.** The customer, identity and privacy
+  specs predate Paper and fail on its copy ("your no."), on a status-role
+  clash with the Live indicator, and on Turbopack's own socket frames
+  reaching `captureFrames`; presence, walk-ins, recall, hold time, archive
+  and the three-stage counter have backend tests only. The two-chair day is
+  covered.
 - **Socket rate limit tuning.** One address opening many boards (a shop with
   several tablets behind one router) can trip the per-address socket limit
   and sit on "Reconnecting…". Raise it, or key it by queue as well.
 - **A "not you?" link on a recovered ticket**, for a shared phone that
   reopens somebody else's place.
-- **Close a chair for the afternoon** — a seat's `active` flag, once seats
-  exist.
-
 **Business**
 
 - **Services.** Different queues for different things — a haircut and a

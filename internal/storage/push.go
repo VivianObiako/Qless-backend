@@ -11,10 +11,14 @@ import (
 // PushTarget is one phone that can still be told something: an active entry
 // with a subscription, and how far up the ladder it has already been told.
 type PushTarget struct {
-	ID           string
-	Number       int
-	Status       queue.EntryStatus
-	LastRung     int
+	ID       string
+	Number   int
+	Status   queue.EntryStatus
+	LastRung int
+
+	// SeatName is where they were called to; empty while they wait.
+	SeatName string
+
 	Subscription push.Subscription
 }
 
@@ -66,9 +70,10 @@ func (s *Store) DeletePushSubscriptionByID(ctx context.Context, id string) error
 // frame never wakes a phone about a number that is over.
 func (s *Store) PushTargets(ctx context.Context, queueID string) ([]PushTarget, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT p.id, e.number, e.status, p.last_rung, p.endpoint, p.p256dh, p.auth
+		`SELECT p.id, e.number, e.status, p.last_rung, COALESCE(s.name, ''), p.endpoint, p.p256dh, p.auth
 		   FROM push_subscriptions p
 		   JOIN queue_entries e ON e.id = p.entry_id
+		   LEFT JOIN seats s ON s.id = e.seat_id
 		  WHERE e.queue_id = $1 AND e.status IN ('WAITING', 'SERVING')`,
 		queueID,
 	)
@@ -83,7 +88,7 @@ func (s *Store) PushTargets(ctx context.Context, queueID string) ([]PushTarget, 
 			t      PushTarget
 			status string
 		)
-		if err := rows.Scan(&t.ID, &t.Number, &status, &t.LastRung,
+		if err := rows.Scan(&t.ID, &t.Number, &status, &t.LastRung, &t.SeatName,
 			&t.Subscription.Endpoint, &t.Subscription.P256dh, &t.Subscription.Auth); err != nil {
 			return nil, fmt.Errorf("scan push target: %w", err)
 		}

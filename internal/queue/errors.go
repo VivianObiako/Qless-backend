@@ -29,4 +29,30 @@ var (
 	ErrInvalidCode = errors.New("invalid access code")
 
 	ErrOperatorNotFound = errors.New("operator not found")
+
+	ErrSeatNotFound = errors.New("seat not found")
+
+	// ErrSeatClosed is a call aimed at a chair that is not in service; the
+	// counter should not have offered it.
+	ErrSeatClosed = errors.New("seat is closed")
+
+	// ErrSeatOccupied is a seat somebody is being served at: it cannot be
+	// closed or removed until they are finished with.
+	ErrSeatOccupied = errors.New("somebody is on this seat")
+
+	// ErrLastSeat is an attempt to remove a queue's only seat.
+	ErrLastSeat = errors.New("a queue needs at least one seat")
+
+	// ErrSeatTaken is an operator trying to take a chair that is somebody's
+	// or has somebody on it. Operators never bump anyone; the owner may.
+	ErrSeatTaken = errors.New("that seat is somebody's")
+
+	// ErrSeatsFixed is an operator picking a chair on a queue where the
+	// owner has fixed them.
+	ErrSeatsFixed = errors.New("seats are fixed")
+
+	// ErrNoFreeSeat is a call with no seat named on a queue where every open
+	// seat has somebody on it. With one seat the call reuses it; with several
+	// the caller has to say which person to stand down.
+	ErrNoFreeSeat = errors.New("every seat is taken")
 )

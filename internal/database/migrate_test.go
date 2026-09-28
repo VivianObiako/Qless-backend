@@ -126,6 +126,81 @@ func TestMigrationCollapsesQueuesSharingOneToken(t *testing.T) {
 	}
 }
 
+// Every queue that existed before seats gets one, "Counter", and whoever was
+// at that counter is pointed at it. Otherwise the per-seat serving index
+// would let a second person be called on a queue whose one occupant has no
+// seat, and history would have no chair for anybody served before today.
+func TestMigrationGivesEveryQueueOneSeat(t *testing.T) {
+	scratch := scratchDatabase(t)
+
+	ownerToken, err := token.New()
+	if err != nil {
+		t.Fatalf("generate owner token: %v", err)
+	}
+	queueID := seedLegacyQueue(t, scratch, token.Hash(ownerToken))
+
+	db := openDatabase(t, scratch)
+	if _, err := db.Exec(
+		`INSERT INTO queue_entries (queue_id, number, customer_name, customer_token_hash, status, started_at)
+		 VALUES ($1, 1, 'Served', 'hash-1', 'ATTENDED', now()),
+		        ($1, 2, 'At the counter', 'hash-2', 'SERVING', now()),
+		        ($1, 3, 'Waiting', 'hash-3', 'WAITING', NULL)`,
+		queueID,
+	); err != nil {
+		t.Fatalf("seed legacy entries: %v", err)
+	}
+	_ = db.Close()
+
+	if err := database.Migrate(scratch); err != nil {
+		t.Fatalf("migrate to head: %v", err)
+	}
+
+	ctx := context.Background()
+	store, err := storage.New(ctx, scratch)
+	if err != nil {
+		t.Fatalf("connect to migrated database: %v", err)
+	}
+	t.Cleanup(store.Close)
+
+	seats, err := store.Seats(ctx, queueID)
+	if err != nil {
+		t.Fatalf("list seats: %v", err)
+	}
+	if len(seats) != 1 || seats[0].Name != storage.DefaultSeatName || !seats[0].Active {
+		t.Fatalf("migrated queue has seats %+v, want one open %q", seats, storage.DefaultSeatName)
+	}
+
+	rows, err := store.Pool().Query(ctx,
+		`SELECT number, seat_id IS NOT NULL FROM queue_entries WHERE queue_id = $1 ORDER BY number`, queueID,
+	)
+	if err != nil {
+		t.Fatalf("read entries: %v", err)
+	}
+	defer rows.Close()
+	seated := map[int]bool{}
+	for rows.Next() {
+		var number int
+		var hasSeat bool
+		if err := rows.Scan(&number, &hasSeat); err != nil {
+			t.Fatalf("scan entry: %v", err)
+		}
+		seated[number] = hasSeat
+	}
+	if !seated[1] || !seated[2] || seated[3] {
+		t.Fatalf("seat backfill = %v, want the called entries on the counter and the waiting one on none", seated)
+	}
+
+	// The queue still serves as before: the one seat is reused, and the
+	// person on it is stood down.
+	result, err := store.ServeNext(ctx, queueID, "", queue.Actor{Type: queue.PrincipalOwner})
+	if err != nil {
+		t.Fatalf("serve next after migrating: %v", err)
+	}
+	if result.Served == nil || result.Served.Number != 3 || result.Attended == nil || result.Attended.Number != 2 {
+		t.Fatalf("serve next = %+v, want #3 called and #2 stood down", result)
+	}
+}
+
 // seedLegacyQueue writes a queue in the 00001 schema — one token hash on the
 // row, no owner anywhere — and returns its id.
 func seedLegacyQueue(t *testing.T, databaseURL, ownerTokenHash string) string {

@@ -22,6 +22,7 @@ func scanOperator(row pgx.Row) (queue.Operator, error) {
 	}
 	o.Status = queue.OperatorStatus(status)
 	o.QueueIDs = []string{}
+	o.Seats = []queue.OperatorSeat{}
 	return o, nil
 }
 
@@ -81,6 +82,16 @@ func assignQueues(
 ) ([]string, error) {
 	if _, err := tx.Exec(ctx, `DELETE FROM operator_queues WHERE operator_id = $1`, operatorID); err != nil {
 		return nil, fmt.Errorf("clear queue assignments: %w", err)
+	}
+
+	// A chair in a queue they no longer work is given up with the queue.
+	// Done before the insert so a queue they keep is untouched.
+	if _, err := tx.Exec(ctx,
+		`UPDATE seats SET worker_operator_id = NULL, updated_at = now()
+		 WHERE worker_operator_id = $1 AND NOT (queue_id = ANY($2))`,
+		operatorID, queueIDs,
+	); err != nil {
+		return nil, fmt.Errorf("give up seats: %w", err)
 	}
 
 	assigned := []string{}
@@ -164,6 +175,16 @@ func (s *Store) ListOperators(ctx context.Context, ownerID string) ([]queue.Oper
 	if err := assignments.Err(); err != nil {
 		return nil, fmt.Errorf("iterate assignments: %w", err)
 	}
+
+	held, err := s.OperatorSeats(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	for id, seats := range held {
+		if at, ok := index[id]; ok {
+			operators[at].Seats = seats
+		}
+	}
 	return operators, nil
 }
 
@@ -197,6 +218,14 @@ func (s *Store) GetOperator(ctx context.Context, ownerID, operatorID string) (qu
 	}
 	if err := rows.Err(); err != nil {
 		return queue.Operator{}, fmt.Errorf("iterate assignments: %w", err)
+	}
+
+	held, err := s.OperatorSeats(ctx, ownerID)
+	if err != nil {
+		return queue.Operator{}, err
+	}
+	if seats, ok := held[operatorID]; ok {
+		operator.Seats = seats
 	}
 	return operator, nil
 }
@@ -295,6 +324,12 @@ func (s *Store) RevokeOperator(ctx context.Context, ownerID, operatorID string) 
 			`DELETE FROM operator_queues WHERE operator_id = $1`, operatorID,
 		); err != nil {
 			return fmt.Errorf("clear revoked assignments: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx,
+			`UPDATE seats SET worker_operator_id = NULL, updated_at = now() WHERE worker_operator_id = $1`, operatorID,
+		); err != nil {
+			return fmt.Errorf("give up revoked seats: %w", err)
 		}
 		return nil
 	})

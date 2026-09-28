@@ -28,12 +28,12 @@ func (s *Server) customerView(ctx context.Context, q queue.Queue, entry *queue.E
 	view := CustomerView{
 		State:        state,
 		Entry:        entry,
-		JoinEstimate: queue.EstimateWait(state.WaitingCount, state.ServiceMinutes),
+		JoinEstimate: queue.EstimateWait(state.WaitingCount, state.ServiceMinutes, state.OpenSeats),
 	}
 
 	if entry != nil && entry.Status == queue.EntryWaiting {
 		view.PeopleAhead = state.PeopleAhead(entry.Number)
-		view.Estimate = queue.EstimateWait(view.PeopleAhead, state.ServiceMinutes)
+		view.Estimate = queue.EstimateWait(view.PeopleAhead, state.ServiceMinutes, state.OpenSeats)
 	}
 
 	return view, nil
@@ -48,8 +48,18 @@ type WaitingRow struct {
 // OperatorView is the dashboard payload. This is the only response shape that
 // can carry customer names, and whether it does depends on who asked.
 type OperatorView struct {
-	Queue        queue.Queue  `json:"queue"`
-	Serving      *queue.Entry `json:"serving"`
+	Queue queue.Queue `json:"queue"`
+
+	// Serving is the person called most recently. Kept for the one-seat
+	// screens; every seat's occupant is on Seats and in ServingList.
+	Serving *queue.Entry `json:"serving"`
+
+	// ServingList is everyone being served, one per seat, in seat order.
+	ServingList []queue.Entry `json:"servingList"`
+
+	// Seats are the queue's seats in order, removed ones left out.
+	Seats []queue.Seat `json:"seats"`
+
 	Waiting      []WaitingRow `json:"waiting"`
 	WaitingCount int          `json:"waitingCount"`
 
@@ -60,6 +70,10 @@ type OperatorView struct {
 	// Measured is what service has actually taken lately, so settings can
 	// show the figure the estimates are using next to the one that was typed.
 	Measured queue.ServiceMeasure `json:"measured"`
+
+	// MeasuredBySeat is the same figure per chair, in seat order, for an
+	// owner comparing chairs and for staff reading their own.
+	MeasuredBySeat []queue.SeatMeasure `json:"measuredBySeat"`
 
 	// Arrival is how long people have been taking to turn up once called —
 	// the number a hold time should be set against.
@@ -72,6 +86,14 @@ type OperatorView struct {
 	// ShowsNames says whether this payload carries them, so the screen renders
 	// a queue of numbers on purpose rather than a queue of blanks by accident.
 	ShowsNames bool `json:"showsNames"`
+}
+
+// calledAfter orders two people being served by when they were called.
+func calledAfter(a, b queue.Entry) bool {
+	if a.StartedAt == nil || b.StartedAt == nil {
+		return false
+	}
+	return a.StartedAt.After(*b.StartedAt)
 }
 
 // maySeeNames is the single answer to "does this person get names", asked by
@@ -113,11 +135,31 @@ func (s *Server) operatorView(
 		return OperatorView{}, err
 	}
 
+	seats, err := s.store.Seats(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+
+	bySeat, err := s.store.MeasuredServiceBySeat(ctx, q.ID)
+	if err != nil {
+		return OperatorView{}, err
+	}
+
+	openSeats := 0
+	for _, seat := range seats {
+		if seat.Active {
+			openSeats++
+		}
+	}
+
 	view := OperatorView{
 		Queue:          q,
+		ServingList:    []queue.Entry{},
+		Seats:          seats,
 		Waiting:        []WaitingRow{},
 		ShowsNames:     withNames,
 		Measured:       measured,
+		MeasuredBySeat: bySeat,
 		Arrival:        arrival,
 		LastActivityAt: lastActivity,
 	}
@@ -128,13 +170,16 @@ func (s *Server) operatorView(
 		}
 
 		if entry.Status == queue.EntryServing {
-			serving := entry
-			view.Serving = &serving
+			view.ServingList = append(view.ServingList, entry)
+			if view.Serving == nil || calledAfter(entry, *view.Serving) {
+				serving := entry
+				view.Serving = &serving
+			}
 			continue
 		}
 		view.Waiting = append(view.Waiting, WaitingRow{
 			Entry:    entry,
-			Estimate: queue.EstimateWait(len(view.Waiting), serviceMinutes),
+			Estimate: queue.EstimateWait(len(view.Waiting), serviceMinutes, openSeats),
 		})
 	}
 

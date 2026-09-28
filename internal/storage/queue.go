@@ -11,7 +11,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, archived_at, created_at, updated_at`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, archived_at, created_at, updated_at`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
@@ -19,7 +19,7 @@ func scanQueue(row pgx.Row) (queue.Queue, error) {
 	err := row.Scan(
 		&q.ID, &q.Name, &q.Slug, &q.Description,
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
-		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
+		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed, &q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
 	)
 	if err != nil {
 		return queue.Queue{}, err
@@ -91,6 +91,9 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 			if err != nil {
 				return err
 			}
+			if err := insertDefaultSeat(ctx, tx, q.ID); err != nil {
+				return err
+			}
 
 			result = CreateQueueResult{Queue: q, OwnerID: ownerID}
 			return nil
@@ -136,6 +139,7 @@ type UpdateQueueParams struct {
 	MaxCapacity           *int
 	ShowNamesToOperators  *bool
 	HoldMinutes           *int
+	SeatsFixed            *bool
 }
 
 // UpdateQueue applies the operator's settings. Changing the name does not
@@ -150,11 +154,12 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 		     max_capacity = CASE WHEN $5 THEN $6 ELSE max_capacity END,
 		     show_names_to_operators = COALESCE($7, show_names_to_operators),
 		     hold_minutes = COALESCE($8, hold_minutes),
+		     seats_fixed = COALESCE($9, seats_fixed),
 		     updated_at = now()
 		 WHERE id = $1
 		 RETURNING `+queueColumns,
 		queueID, p.Name, p.Description, p.AverageServiceMinutes,
-		p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes,
+		p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return queue.Queue{}, queue.ErrNotFound
@@ -221,6 +226,57 @@ func (s *Store) MeasuredService(ctx context.Context, queueID string) (queue.Serv
 		          LIMIT 10) recent`)
 }
 
+// MeasuredServiceBySeat is MeasuredService per chair, for an owner comparing
+// them: the last ten real service times at each chair in the past twelve
+// hours. Chairs with nothing served lately come back with a zero sample.
+func (s *Store) MeasuredServiceBySeat(ctx context.Context, queueID string) ([]queue.SeatMeasure, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT st.id, st.name,
+		        COALESCE((SELECT AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(served_at, started_at))) / 60)
+		                    FROM (SELECT started_at, served_at, completed_at
+		                            FROM queue_entries
+		                           WHERE seat_id = st.id AND status = 'ATTENDED'
+		                             AND started_at IS NOT NULL AND completed_at > COALESCE(served_at, started_at)
+		                             AND completed_at > now() - interval '12 hours'
+		                           ORDER BY completed_at DESC
+		                           LIMIT 10) recent), 0),
+		        (SELECT count(*)
+		           FROM (SELECT 1
+		                   FROM queue_entries
+		                  WHERE seat_id = st.id AND status = 'ATTENDED'
+		                    AND started_at IS NOT NULL AND completed_at > COALESCE(served_at, started_at)
+		                    AND completed_at > now() - interval '12 hours'
+		                  ORDER BY completed_at DESC
+		                  LIMIT 10) recent)
+		   FROM seats st
+		  WHERE st.queue_id = $1 AND st.removed_at IS NULL
+		  ORDER BY st.position, st.created_at`,
+		queueID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("measure by seat: %w", err)
+	}
+	defer rows.Close()
+
+	measures := []queue.SeatMeasure{}
+	for rows.Next() {
+		var m queue.SeatMeasure
+		var minutes float64
+		if err := rows.Scan(&m.SeatID, &m.SeatName, &minutes, &m.Sample); err != nil {
+			return nil, fmt.Errorf("scan seat measure: %w", err)
+		}
+		m.Minutes = int(math.Round(minutes))
+		if m.Sample > 0 && m.Minutes < 1 {
+			m.Minutes = 1
+		}
+		measures = append(measures, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate seat measures: %w", err)
+	}
+	return measures, nil
+}
+
 // MeasuredArrival averages how long the last ten customers took to turn up
 // after being called. Only entries where service was marked as begun count;
 // it is the evidence for tuning the hold time.
@@ -272,6 +328,8 @@ func (s *Store) LastActivity(ctx context.Context, queueID string) (*time.Time, e
 func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicState, error) {
 	state := queue.PublicState{
 		Queue:          q.Summary(),
+		Serving:        []queue.ServingSlot{},
+		Seats:          []queue.PublicSeat{},
 		WaitingNumbers: []int{},
 	}
 
@@ -281,17 +339,48 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 	}
 	state.ServiceMinutes = q.ServiceMinutesIn(measured)
 
-	var servingNumber int
-	err = s.pool.QueryRow(ctx,
-		`SELECT number FROM queue_entries WHERE queue_id = $1 AND status = 'SERVING'`, q.ID,
-	).Scan(&servingNumber)
-	switch {
-	case err == nil:
-		state.ServingNumber = &servingNumber
-	case errors.Is(err, pgx.ErrNoRows):
-		// Nobody is being served yet; leave ServingNumber nil.
-	default:
-		return queue.PublicState{}, fmt.Errorf("read serving number: %w", err)
+	seats, err := s.Seats(ctx, q.ID)
+	if err != nil {
+		return queue.PublicState{}, err
+	}
+	for _, seat := range seats {
+		state.Seats = append(state.Seats, seat.Public())
+		if seat.Active {
+			state.OpenSeats++
+		}
+	}
+
+	serving, err := s.pool.Query(ctx,
+		`SELECT e.number, s.id, s.name, e.started_at
+		   FROM queue_entries e
+		   JOIN seats s ON s.id = e.seat_id
+		  WHERE e.queue_id = $1 AND e.status = 'SERVING'
+		  ORDER BY s.position, s.created_at`,
+		q.ID,
+	)
+	if err != nil {
+		return queue.PublicState{}, fmt.Errorf("read serving numbers: %w", err)
+	}
+	defer serving.Close()
+
+	var latestCall *time.Time
+	for serving.Next() {
+		var slot queue.ServingSlot
+		var startedAt *time.Time
+		if err := serving.Scan(&slot.Number, &slot.SeatID, &slot.SeatName, &startedAt); err != nil {
+			return queue.PublicState{}, fmt.Errorf("scan serving number: %w", err)
+		}
+		state.Serving = append(state.Serving, slot)
+
+		// The most recent call is what a one-number board shows.
+		if state.ServingNumber == nil || (startedAt != nil && (latestCall == nil || startedAt.After(*latestCall))) {
+			number := slot.Number
+			state.ServingNumber = &number
+			latestCall = startedAt
+		}
+	}
+	if err := serving.Err(); err != nil {
+		return queue.PublicState{}, fmt.Errorf("iterate serving numbers: %w", err)
 	}
 
 	rows, err := s.pool.Query(ctx,
@@ -314,13 +403,10 @@ func (s *Store) PublicState(ctx context.Context, q queue.Queue) (queue.PublicSta
 	}
 
 	state.WaitingCount = len(state.WaitingNumbers)
-	state.Estimates = queue.EstimateTable(state.WaitingCount, state.ServiceMinutes)
+	state.Estimates = queue.EstimateTable(state.WaitingCount, state.ServiceMinutes, state.OpenSeats)
 
 	if q.MaxCapacity != nil {
-		active := state.WaitingCount
-		if state.ServingNumber != nil {
-			active++
-		}
+		active := state.WaitingCount + len(state.Serving)
 		state.IsFull = active >= *q.MaxCapacity
 	}
 

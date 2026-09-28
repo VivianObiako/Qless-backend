@@ -54,6 +54,10 @@ type Queue struct {
 	// when it resumes.
 	PauseNote string `json:"pauseNote"`
 
+	// SeatsFixed means staff work the chair the owner assigned and cannot
+	// pick another; off, they may take any free chair and leave it.
+	SeatsFixed bool `json:"seatsFixed"`
+
 	// ArchivedAt is set once the owner has put the queue away. It is hidden
 	// from their list and refuses joins, and everything it recorded stays.
 	ArchivedAt *time.Time `json:"archivedAt"`
@@ -89,11 +93,24 @@ func (q Queue) ServiceMinutesIn(m ServiceMeasure) int {
 	return q.AverageServiceMinutes
 }
 
+// SeatMeasure is one chair's measured service: what serving has taken
+// there lately, for an owner comparing chairs.
+type SeatMeasure struct {
+	SeatID   string `json:"seatId"`
+	SeatName string `json:"seatName"`
+	Minutes  int    `json:"minutes"`
+	Sample   int    `json:"sample"`
+}
+
 // QueueCard is a queue with the two live figures an owner reads a list by:
 // what is being served and how many are waiting.
 type QueueCard struct {
 	Queue
+	// ServingNumber is the most recent call, kept for the one-seat card;
+	// ServingCount of OpenSeats is what a card with chairs reads.
 	ServingNumber *int `json:"servingNumber"`
+	ServingCount  int  `json:"servingCount"`
+	OpenSeats     int  `json:"openSeats"`
 	WaitingCount  int  `json:"waitingCount"`
 }
 
@@ -135,6 +152,90 @@ type Entry struct {
 	// Added at the counter by staff rather than from a phone. Nobody can
 	// recover this entry on a device, so the counter says so.
 	WalkIn bool `json:"walkIn"`
+
+	// SeatID is where they were called to. Nil while they wait, set by the
+	// call and kept afterwards so history can say which chair served them.
+	SeatID *string `json:"seatId"`
+}
+
+// Seat is one place a customer is sent to be served: a chair, a counter, an
+// exam room. A queue with one seat is a queue with a counter, and every
+// queue has at least one. Active is whether it is open for service right
+// now; RemovedAt is set on a seat the owner has taken away, which stays so
+// history can still name it.
+type Seat struct {
+	ID        string     `json:"id"`
+	QueueID   string     `json:"queueId"`
+	Name      string     `json:"name"`
+	Position  int        `json:"position"`
+	Active    bool       `json:"active"`
+	RemovedAt *time.Time `json:"removedAt"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+
+	// Worker is who is at this chair: an operator, the owner, or nobody.
+	Worker *SeatWorker `json:"worker"`
+}
+
+// SeatWorker names who works a seat. OperatorID is empty for the owner;
+// Name is what the tile shows, the operator's display name or the owner's.
+type SeatWorker struct {
+	Type       PrincipalType `json:"type"`
+	OperatorID string        `json:"operatorId,omitempty"`
+	Name       string        `json:"name"`
+}
+
+// WorkedBy reports whether this actor is the one at the seat.
+func (s Seat) WorkedBy(actor Actor) bool {
+	if s.Worker == nil {
+		return false
+	}
+	if actor.IsOwner() {
+		return s.Worker.Type == PrincipalOwner
+	}
+	return s.Worker.Type == PrincipalOperator && s.Worker.OperatorID == actor.ID
+}
+
+// PublicSeat is what a customer surface knows about a seat: enough to say
+// "Go to Chair 2" and to show a closed chair as closed. Seat names are
+// public the moment they are on a pass, which the settings say.
+type PublicSeat struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+
+	// WorkerName is who is at the chair, so the pass can say "Kofi is ready
+	// for you". Empty when nobody is, or the owner has given no name. The
+	// owner names staff on the roster knowing it reaches the pass.
+	WorkerName string `json:"workerName"`
+}
+
+func (s Seat) Public() PublicSeat {
+	public := PublicSeat{ID: s.ID, Name: s.Name, Active: s.Active}
+	if s.Worker != nil {
+		public.WorkerName = s.Worker.Name
+	}
+	return public
+}
+
+// ServingSlot is one number being served and where: the wall shows the
+// number under the chair, the pass tells its holder which chair to go to.
+type ServingSlot struct {
+	Number   int    `json:"number"`
+	SeatID   string `json:"seatId"`
+	SeatName string `json:"seatName"`
+}
+
+// TurnsAhead is how many calls have to happen before a waiting customer's
+// own, with several seats calling at once: three chairs and three people
+// ahead is one turn, not three. Both ladders rank on this rather than on
+// people, or a customer hears "you're next" and "it's your turn" a second
+// apart. A queue with every seat closed still counts as one.
+func TurnsAhead(peopleAhead, openSeats int) int {
+	if openSeats < 1 {
+		openSeats = 1
+	}
+	return peopleAhead / openSeats
 }
 
 // Summary is the queue metadata safe to expose on public surfaces.
@@ -169,11 +270,23 @@ func (q Queue) Summary() Summary {
 // /me and derives their position from WaitingNumbers locally, so one client
 // never learns another customer's identity.
 type PublicState struct {
-	Queue          Summary `json:"queue"`
-	ServingNumber  *int    `json:"servingNumber"`
-	WaitingNumbers []int   `json:"waitingNumbers"`
-	WaitingCount   int     `json:"waitingCount"`
-	IsFull         bool    `json:"isFull"`
+	Queue Summary `json:"queue"`
+
+	// ServingNumber is the number called most recently. It stays so a board
+	// from before seats keeps working; Serving is the whole picture.
+	ServingNumber *int `json:"servingNumber"`
+
+	// Serving is every number being served and the seat it is at, in seat
+	// order. Seats are the queue's seats in order, closed ones included and
+	// removed ones left out; OpenSeats is how many are in service, which is
+	// what the estimate and the ladder divide by.
+	Serving   []ServingSlot `json:"serving"`
+	Seats     []PublicSeat  `json:"seats"`
+	OpenSeats int           `json:"openSeats"`
+
+	WaitingNumbers []int `json:"waitingNumbers"`
+	WaitingCount   int   `json:"waitingCount"`
+	IsFull         bool  `json:"isFull"`
 
 	// ServiceMinutes is the figure the estimates below were built from — the
 	// measured average once there is one, the setting until then.

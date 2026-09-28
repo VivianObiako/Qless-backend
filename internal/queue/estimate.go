@@ -16,13 +16,21 @@ type Estimate struct {
 // front of them, or nil when they are next or already being served — at that
 // point the state itself is the message, not a duration.
 //
+// With several seats the wait is in turns, not people: ceil(ahead / seats)
+// calls have to happen before this one, each taking a service. Seats that
+// are closed must not be counted by the caller, or the figure is optimistic.
+//
 // Computed server-side so that every client agrees on the number.
-func EstimateWait(peopleAhead, averageServiceMinutes int) *Estimate {
+func EstimateWait(peopleAhead, averageServiceMinutes, openSeats int) *Estimate {
 	if peopleAhead <= 0 || averageServiceMinutes <= 0 {
 		return nil
 	}
+	if openSeats < 1 {
+		openSeats = 1
+	}
+	turns := (peopleAhead + openSeats - 1) / openSeats
 
-	base := float64(peopleAhead * averageServiceMinutes)
+	base := float64(turns * averageServiceMinutes)
 	low := roundToFive(base * 0.8)
 	high := roundToFive(base * 1.2)
 
@@ -49,10 +57,10 @@ func EstimateWait(peopleAhead, averageServiceMinutes int) *Estimate {
 // position is derived in the browser — that is what keeps other customers'
 // names off the wire — but the wait itself stays server-side, where one
 // implementation guarantees every screen agrees.
-func EstimateTable(waitingCount, averageServiceMinutes int) []*Estimate {
+func EstimateTable(waitingCount, averageServiceMinutes, openSeats int) []*Estimate {
 	table := make([]*Estimate, waitingCount+1)
 	for ahead := range table {
-		table[ahead] = EstimateWait(ahead, averageServiceMinutes)
+		table[ahead] = EstimateWait(ahead, averageServiceMinutes, openSeats)
 	}
 	return table
 }
