@@ -30,6 +30,29 @@ func (s EntryStatus) IsActive() bool {
 	return s == EntryWaiting || s == EntryServing
 }
 
+// ServingOrder is how the counter picks who is called next. In order is the
+// queue as it has always been: the lowest waiting number. Random is a draw:
+// everyone holds a number, the counter calls one at random, and one more is
+// drawn ahead as "up next" so a called person had some warning.
+type ServingOrder string
+
+const (
+	ServingInOrder ServingOrder = "IN_ORDER"
+	ServingRandom  ServingOrder = "RANDOM"
+)
+
+func (o ServingOrder) Valid() bool {
+	return o == ServingInOrder || o == ServingRandom
+}
+
+// What the people in a queue are called unless the owner says otherwise, and
+// the longest word the columns accept.
+const (
+	DefaultPersonNoun = "customer"
+	DefaultPeopleNoun = "customers"
+	NounLimit         = 30
+)
+
 type Queue struct {
 	ID                    string `json:"id"`
 	Name                  string `json:"name"`
@@ -58,12 +81,33 @@ type Queue struct {
 	// pick another; off, they may take any free chair and leave it.
 	SeatsFixed bool `json:"seatsFixed"`
 
+	// ServingOrder is how the counter picks who is next. A draw needs a
+	// MaxCapacity: the places are the point, and the database refuses the
+	// combination without one.
+	ServingOrder ServingOrder `json:"servingOrder"`
+
+	// PersonNoun and PeopleNoun are what the people in this queue are called
+	// on their phones and on the wall: customer and customers, guest and
+	// guests, participant and participants.
+	PersonNoun string `json:"personNoun"`
+	PeopleNoun string `json:"peopleNoun"`
+
+	// ResetAt is when the numbering last started again; nil for a queue
+	// never reset. A draw counts its places from here, so a number from a
+	// previous event does not take a place at this one.
+	ResetAt *time.Time `json:"resetAt"`
+
 	// ArchivedAt is set once the owner has put the queue away. It is hidden
 	// from their list and refuses joins, and everything it recorded stays.
 	ArchivedAt *time.Time `json:"archivedAt"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// IsDraw reports whether this queue calls people at random.
+func (q Queue) IsDraw() bool {
+	return q.ServingOrder == ServingRandom
 }
 
 // RecallWindow is how long a skipped customer can be called back with the
@@ -156,6 +200,11 @@ type Entry struct {
 	// SeatID is where they were called to. Nil while they wait, set by the
 	// call and kept afterwards so history can say which chair served them.
 	SeatID *string `json:"seatId"`
+
+	// DrawnAt is when a draw picked this number as up next. Nil in a queue
+	// served in order, and until the draw reaches them in one served at
+	// random. Kept after the call, so history can say when they were drawn.
+	DrawnAt *time.Time `json:"drawnAt"`
 }
 
 // Seat is one place a customer is sent to be served: a chair, a counter, an
@@ -249,6 +298,12 @@ type Summary struct {
 	MaxCapacity           *int   `json:"maxCapacity"`
 	HoldMinutes           int    `json:"holdMinutes"`
 	PauseNote             string `json:"pauseNote"`
+
+	// ServingOrder is public because the pass, the wall and the join page
+	// all change their wording on it: a draw has no queue to be ahead in.
+	ServingOrder ServingOrder `json:"servingOrder"`
+	PersonNoun   string       `json:"personNoun"`
+	PeopleNoun   string       `json:"peopleNoun"`
 }
 
 func (q Queue) Summary() Summary {
@@ -262,7 +317,15 @@ func (q Queue) Summary() Summary {
 		MaxCapacity:           q.MaxCapacity,
 		HoldMinutes:           q.HoldMinutes,
 		PauseNote:             q.PauseNote,
+		ServingOrder:          q.ServingOrder,
+		PersonNoun:            q.PersonNoun,
+		PeopleNoun:            q.PeopleNoun,
 	}
+}
+
+// IsDraw reports whether this queue calls people at random.
+func (s Summary) IsDraw() bool {
+	return s.ServingOrder == ServingRandom
 }
 
 // PublicState is what every customer browser and display screen receives.
@@ -287,6 +350,16 @@ type PublicState struct {
 	WaitingNumbers []int `json:"waitingNumbers"`
 	WaitingCount   int   `json:"waitingCount"`
 	IsFull         bool  `json:"isFull"`
+
+	// UpNextNumber is the number a draw has picked to be called next. Nil in
+	// a queue served in order, where WaitingNumbers already says who is
+	// next, and in a draw before the first call or once the pool is empty.
+	UpNextNumber *int `json:"upNextNumber"`
+
+	// PlacesTaken is what the capacity is measured against: the people in
+	// line in a queue served in order, every number handed out since the
+	// last reset in a draw. With no capacity it is still reported.
+	PlacesTaken int `json:"placesTaken"`
 
 	// ServiceMinutes is the figure the estimates below were built from — the
 	// measured average once there is one, the setting until then.

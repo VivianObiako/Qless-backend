@@ -16,10 +16,45 @@ type createQueueRequest struct {
 	AverageServiceMinutes int    `json:"averageServiceMinutes"`
 	MaxCapacity           *int   `json:"maxCapacity"`
 
+	// ServingOrder defaults to in order; a draw needs a capacity. The nouns
+	// default to customer and customers. All three are settings, so the
+	// create form need not offer them.
+	ServingOrder string `json:"servingOrder"`
+	PersonNoun   string `json:"personNoun"`
+	PeopleNoun   string `json:"peopleNoun"`
+
 	// OwnerName is read only when this request creates the business. An
 	// owner adding a queue already has whatever name they gave.
 	OwnerName string `json:"ownerName"`
 }
+
+// validNoun trims a noun and bounds it the way the column does. Blank means
+// the default: the settings form sends what the boxes hold, and an emptied
+// box is a request for the ordinary word rather than for no word at all.
+func validNoun(raw, fallback string) (string, error) {
+	noun := strings.TrimSpace(raw)
+	if noun == "" {
+		return fallback, nil
+	}
+	if len([]rune(noun)) > queue.NounLimit {
+		return "", invalid("What people are called must be 30 characters or fewer.")
+	}
+	return noun, nil
+}
+
+// validServingOrder reads the setting, blank meaning in order.
+func validServingOrder(raw string) (queue.ServingOrder, error) {
+	if raw == "" {
+		return queue.ServingInOrder, nil
+	}
+	order := queue.ServingOrder(raw)
+	if !order.Valid() {
+		return "", invalid("Serving order must be IN_ORDER or RANDOM.")
+	}
+	return order, nil
+}
+
+const drawNeedsPlaces = "A draw needs a fixed number of places, from 1 to 1000."
 
 func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 	name := strings.TrimSpace(r.Name)
@@ -43,6 +78,23 @@ func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 		return storage.CreateQueueParams{}, invalid("Maximum queue size must be between 1 and 1000.")
 	}
 
+	order, err := validServingOrder(r.ServingOrder)
+	if err != nil {
+		return storage.CreateQueueParams{}, err
+	}
+	if order == queue.ServingRandom && r.MaxCapacity == nil {
+		return storage.CreateQueueParams{}, invalid(drawNeedsPlaces)
+	}
+
+	personNoun, err := validNoun(r.PersonNoun, queue.DefaultPersonNoun)
+	if err != nil {
+		return storage.CreateQueueParams{}, err
+	}
+	peopleNoun, err := validNoun(r.PeopleNoun, queue.DefaultPeopleNoun)
+	if err != nil {
+		return storage.CreateQueueParams{}, err
+	}
+
 	ownerName := strings.TrimSpace(r.OwnerName)
 	if len([]rune(ownerName)) > ownerNameLimit {
 		return storage.CreateQueueParams{}, invalid("Your name must be 60 characters or fewer.")
@@ -53,6 +105,9 @@ func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 		Description:           description,
 		AverageServiceMinutes: r.AverageServiceMinutes,
 		MaxCapacity:           r.MaxCapacity,
+		ServingOrder:          order,
+		PersonNoun:            personNoun,
+		PeopleNoun:            peopleNoun,
 		NewOwnerName:          ownerName,
 	}, nil
 }

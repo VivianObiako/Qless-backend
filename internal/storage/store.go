@@ -102,6 +102,14 @@ func isUniqueViolation(err error, constraint string) bool {
 	return pgErr.Code == "23505" && (constraint == "" || pgErr.ConstraintName == constraint)
 }
 
+func isCheckViolation(err error, constraint string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == "23514" && pgErr.ConstraintName == constraint
+}
+
 // inTx runs fn inside a transaction, rolling back on any error. The rollback
 // after a successful commit is a no-op, which keeps the defer simple.
 func (s *Store) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
