@@ -25,9 +25,10 @@ type Server struct {
 	hub     *realtime.Hub
 	sockets *realtime.Upgrader
 
-	joinLimiter   *httpx.Limiter
-	writeLimiter  *httpx.Limiter
-	socketLimiter *httpx.Limiter
+	joinLimiter     *httpx.Limiter
+	drawJoinLimiter *httpx.Limiter
+	writeLimiter    *httpx.Limiter
+	socketLimiter   *httpx.Limiter
 
 	redeemLimiter *httpx.Limiter
 	codeLimiter   *httpx.Limiter
@@ -45,8 +46,12 @@ func NewServer(store *storage.Store) *Server {
 		// 5 joins per minute per IP per queue, and a wider ceiling on writes
 		// overall. Enough to stop a bored person filling a barbershop queue,
 		// not so tight that a family joining on one phone hits it.
-		joinLimiter:  httpx.NewLimiter(5, 5),
-		writeLimiter: httpx.NewLimiter(30, 30),
+		joinLimiter: httpx.NewLimiter(5, 5),
+		// A draw is joined by a whole room at once, usually on one venue
+		// connection: sixty teams scanning in the first minute is the case it
+		// is sized for. Its fixed places bound what a flood could take.
+		drawJoinLimiter: httpx.NewLimiter(60, 60),
+		writeLimiter:    httpx.NewLimiter(30, 30),
 		// Connections, not messages: a browser reconnecting with backoff after
 		// a flaky signal should never be locked out, but a script opening
 		// sockets in a loop should be.
