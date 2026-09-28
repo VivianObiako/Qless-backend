@@ -106,9 +106,23 @@ func CORS(allowedOrigins ...string) Middleware {
 	}
 }
 
-// ClientIP prefers the proxy-supplied address so rate limiting still works
-// behind the load balancers used by the free tiers this deploys to.
+// ConnectingIPHeader is set by Cloudflare, which sits in front of every Render
+// service, to the address that connected to it. Cloudflare overwrites any
+// value a client sends, so unlike X-Forwarded-For it cannot be forged.
+const ConnectingIPHeader = "CF-Connecting-IP"
+
+// ClientIP is the address rate limits are keyed on.
+//
+// Render appends to X-Forwarded-For rather than replacing it, so its first
+// entry is whatever the caller wrote there: one made-up header was enough to
+// step around every limit. Cloudflare's own header comes first for that
+// reason. X-Forwarded-For stays as the fallback for a deploy without
+// Cloudflare in front, where it is no worse than it was, and the socket
+// address is the last resort for a request that came straight in.
 func ClientIP(r *http.Request) string {
+	if connecting := strings.TrimSpace(r.Header.Get(ConnectingIPHeader)); connecting != "" {
+		return connecting
+	}
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		if first, _, found := strings.Cut(forwarded, ","); found {
 			return strings.TrimSpace(first)

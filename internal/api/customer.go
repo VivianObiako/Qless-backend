@@ -28,7 +28,14 @@ func (s *Server) joinQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.joinLimiter.Allow(httpx.ClientIP(r) + "|" + q.ID) {
+	// A draw is joined by a room of people on one venue connection, and its
+	// fixed places already cap what a flood could take, so it gets its own,
+	// wider limit. A queue served in order keeps the tight one.
+	limiter := s.joinLimiter
+	if q.IsDraw() {
+		limiter = s.drawJoinLimiter
+	}
+	if !limiter.Allow(httpx.ClientIP(r) + "|" + q.ID) {
 		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "Too many join attempts. Try again in a minute.")
 		return
 	}
