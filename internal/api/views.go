@@ -69,6 +69,11 @@ type OperatorView struct {
 	Waiting      []WaitingRow `json:"waiting"`
 	WaitingCount int          `json:"waitingCount"`
 
+	// PlacesTaken is what the capacity is measured against, the same figure
+	// the public state carries: in a draw, how many of the fixed places are
+	// gone, which is what tells the organiser whether to add some.
+	PlacesTaken int `json:"placesTaken"`
+
 	// Stood down inside the recall window, most recent first. Still theirs to
 	// be called back on; after the window they are history only.
 	Skipped []queue.Entry `json:"skipped"`
@@ -191,6 +196,12 @@ func (s *Server) operatorView(
 	}
 
 	view.WaitingCount = len(view.Waiting)
+
+	taken, err := s.store.PlacesTaken(ctx, q)
+	if err != nil {
+		return OperatorView{}, err
+	}
+	view.PlacesTaken = taken
 
 	skipped, err := s.store.ListRecentlySkipped(ctx, q.ID)
 	if err != nil {

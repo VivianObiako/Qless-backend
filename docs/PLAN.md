@@ -1123,6 +1123,35 @@ more than one seat.
 
 ---
 
+## Draw mode
+
+Built 28 September 2026 on top of multi-seat. The decisions are in
+DECISIONS.md under "Draw mode".
+
+- [x] **D.1 Migration 00012.** `serving_order`, `random_requires_capacity`,
+      `person_noun`, `people_noun` and `reset_at` on queues; `drawn_at` and
+      `one_drawn_per_queue` on entries.
+- [x] **D.2 The draw.** Serve next in a draw calls the drawn number, or a
+      random one before anything is drawn, then draws the next. Every path
+      that can empty the slot refills it. Capacity counts places taken since
+      the last reset.
+- [x] **D.3 Contract.** `servingOrder`, `personNoun`, `peopleNoun` on the
+      summary; `upNextNumber` and `placesTaken` on the public state;
+      `drawnAt` on entries; `placesTaken` on the operator view. No wait and
+      no position in a draw. Push drops "getting close" in a draw and uses
+      the nouns.
+- [x] **D.4 Screens.** Settings: a Calling choice, Number of places required
+      in a draw, service time hidden, and What to call people. Join: At
+      random, places left, All places are taken. Pass: In the draw, Up next,
+      Still to go, "You've been drawn next. Get ready." Wall: one drawn
+      number and "still to go". Counter: Draw next, then Call next · N, the
+      Next badge on the drawn row, Places taken.
+- [x] **D.5 Tests.** Go: the draw sequence, randomness, refills, concurrent
+      draws, places across call, cancel and reset, settings guards, nouns,
+      the push rungs. Playwright: `e2e/draw.spec.ts`.
+
+---
+
 ## Backlog — not scheduled
 
 Real features, deliberately not in the current plan. Each needs its own plan

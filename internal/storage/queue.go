@@ -239,6 +239,11 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 	return q, nil
 }
 
+// PlacesTaken is placesTaken outside a transaction, for the counter.
+func (s *Store) PlacesTaken(ctx context.Context, q queue.Queue) (int, error) {
+	return placesTaken(ctx, s.pool, q)
+}
+
 // placesTaken is what a queue's capacity is measured against. A queue served
 // in order counts the people in line, so a place frees up as each is served.
 // A draw counts every number handed out since the last reset: a person who
