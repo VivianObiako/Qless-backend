@@ -53,7 +53,15 @@ func TestEstimateWait(t *testing.T) {
 			serviceMins: 2,
 			wantLow:     5,
 			wantHigh:    5,
-			wantLabel:   "5–5 min",
+			wantLabel:   "5 min",
+		},
+		{
+			name:        "both ends rounding to the same figure read as one",
+			peopleAhead: 2,
+			serviceMins: 5,
+			wantLow:     10,
+			wantHigh:    10,
+			wantLabel:   "10 min",
 		},
 		{
 			name:        "three chairs make three ahead one turn",
