@@ -70,8 +70,13 @@ func roundToFive(minutes float64) int {
 }
 
 // formatRange keeps the unit out of the middle of the range: short waits read
-// "10–20 min", long ones switch to hours as "1h 50m – 2h 15m".
+// "10–20 min", long ones switch to hours as "1h 50m – 2h 15m". Both ends
+// round to five minutes, so a short wait can land on the same figure twice;
+// that reads as one figure, "10 min", never "10–10 min".
 func formatRange(low, high int) string {
+	if low == high {
+		return formatDuration(low)
+	}
 	if high < 90 {
 		return fmt.Sprintf("%d–%d min", low, high)
 	}
