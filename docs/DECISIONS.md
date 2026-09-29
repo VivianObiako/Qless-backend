@@ -946,3 +946,23 @@ pass follow. A free word was rejected because the phrase appears in several
 forms ("Now presenting", "presenting", "Thanks for presenting") that a typed
 word cannot be bent into; the web app holds each form for each choice. It is
 independent of serving order, and the owner's own counter keeps "serving".
+
+## Getting a new recovery code
+
+Built 29 September 2026. An owner who lost their code while a device was
+still signed in had no way to get another, and one who created a queue from
+a signed-in browser was never shown one at all.
+
+**A signed-in owner can get a new code from Profile.** Only a hash is kept,
+so the old code cannot be shown; a new one is issued instead, staged beside
+the old one. The old code keeps working until the owner says the new one is
+saved, so a closed tab costs nothing. An owner with no signed-in device and
+no code is still locked out: there is no email or other identity to recover
+through, and adding one is a separate decision.
+
+**Saving names the code it saves.** The staged slot is shared by Profile and
+by signing in with a code, which stages its own replacement. Confirming
+blind would make live a code the owner never saw while retiring the one they
+hold; a browser test caught exactly that. The confirmation now carries the
+code, only that code is promoted, and one replaced meanwhile is refused with
+nothing changed. A client that sends no code gets the old behaviour.
