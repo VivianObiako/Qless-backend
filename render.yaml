@@ -32,3 +32,28 @@ services:
       # notification, so they can reach you if the server misbehaves.
       - key: VAPID_SUBJECT
         sync: false
+
+  # The same API in Frankfurt, beside the Neon database in AWS Europe Central 1
+  # and closer to West Africa. A Render service cannot change region, so the
+  # move is a second service; the Oregon entry above goes once this one has
+  # taken over. Copy every secret from the Oregon service unchanged except
+  # DATABASE_URL, which points at the Frankfurt database. New VAPID keys would
+  # silently break every existing push subscription.
+  - type: web
+    name: qless-api-eu
+    region: frankfurt
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGIN
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
