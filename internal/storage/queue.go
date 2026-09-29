@@ -11,16 +11,16 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, call_phrase, reset_at, archived_at, created_at, updated_at`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, call_phrase, numbering, reset_at, archived_at, created_at, updated_at`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
-	var status, order, phrase string
+	var status, order, phrase, numbering string
 	err := row.Scan(
 		&q.ID, &q.Name, &q.Slug, &q.Description,
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
 		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed,
-		&order, &q.PersonNoun, &q.PeopleNoun, &phrase, &q.ResetAt,
+		&order, &q.PersonNoun, &q.PeopleNoun, &phrase, &numbering, &q.ResetAt,
 		&q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
 	)
 	if err != nil {
@@ -29,6 +29,7 @@ func scanQueue(row pgx.Row) (queue.Queue, error) {
 	q.Status = queue.Status(status)
 	q.ServingOrder = queue.ServingOrder(order)
 	q.CallPhrase = queue.CallPhrase(phrase)
+	q.Numbering = queue.Numbering(numbering)
 	return q, nil
 }
 
@@ -41,6 +42,7 @@ type CreateQueueParams struct {
 	PersonNoun            string
 	PeopleNoun            string
 	CallPhrase            queue.CallPhrase
+	Numbering             queue.Numbering
 
 	// OwnerID attaches the queue to a business that already exists. Leave it
 	// empty to mint one, in which case the two hashes below are required: the
@@ -80,6 +82,9 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 	if p.CallPhrase == "" {
 		p.CallPhrase = queue.CallServing
 	}
+	if p.Numbering == "" {
+		p.Numbering = queue.NumberSequential
+	}
 
 	base := slugify(p.Name)
 
@@ -107,14 +112,14 @@ func (s *Store) CreateQueue(ctx context.Context, p CreateQueueParams) (CreateQue
 
 			q, err := scanQueue(tx.QueryRow(ctx,
 				`INSERT INTO queues (name, slug, description, average_service_minutes, max_capacity, owner_id,
-				                     serving_order, person_noun, people_noun, call_phrase)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				                     serving_order, person_noun, people_noun, call_phrase, numbering)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 				 RETURNING `+queueColumns,
 				p.Name, slug, p.Description, p.AverageServiceMinutes, p.MaxCapacity, ownerID,
-				string(p.ServingOrder), p.PersonNoun, p.PeopleNoun, string(p.CallPhrase),
+				string(p.ServingOrder), p.PersonNoun, p.PeopleNoun, string(p.CallPhrase), string(p.Numbering),
 			))
-			if isCheckViolation(err, "random_requires_capacity") {
-				return errDrawNeedsPlaces
+			if err := settingsViolation(err); err != nil {
+				return err
 			}
 			if err != nil {
 				return err
@@ -172,11 +177,27 @@ type UpdateQueueParams struct {
 	PersonNoun            *string
 	PeopleNoun            *string
 	CallPhrase            *queue.CallPhrase
+	Numbering             *queue.Numbering
 }
 
 // errDrawNeedsPlaces is the database refusing a draw with no capacity. The
 // API refuses it first; this is what two settings requests racing get.
 var errDrawNeedsPlaces = fmt.Errorf("%w: A draw needs a fixed number of places.", queue.ErrInvalidInput)
+
+// settingsViolation turns the queue table's own checks into the answer an
+// owner reads. The API refuses these first; this is two requests racing.
+// Any other error, or none, comes back as it was.
+func settingsViolation(err error) error {
+	switch {
+	case isCheckViolation(err, "random_requires_capacity"):
+		return errDrawNeedsPlaces
+	case isCheckViolation(err, "random_numbers_require_capacity"):
+		return fmt.Errorf("%w: Random numbers need a fixed number of places.", queue.ErrInvalidInput)
+	case isCheckViolation(err, "one_kind_of_random"):
+		return fmt.Errorf("%w: Choose random numbers or a random call, not both.", queue.ErrInvalidInput)
+	}
+	return err
+}
 
 // UpdateQueue applies the operator's settings. Changing the name does not
 // change the slug: a queue's URL is printed on a sheet taped to a door, and
@@ -195,6 +216,11 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 	if p.CallPhrase != nil {
 		value := string(*p.CallPhrase)
 		phrase = &value
+	}
+	var numbering *string
+	if p.Numbering != nil {
+		value := string(*p.Numbering)
+		numbering = &value
 	}
 
 	var q queue.Queue
@@ -217,18 +243,39 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 			     person_noun = COALESCE($11, person_noun),
 			     people_noun = COALESCE($12, people_noun),
 			     call_phrase = COALESCE($13, call_phrase),
+			     numbering = COALESCE($14, numbering),
 			     updated_at = now()
 			 WHERE id = $1
 			 RETURNING `+queueColumns,
 			queueID, p.Name, p.Description, p.AverageServiceMinutes,
 			p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
-			order, p.PersonNoun, p.PeopleNoun, phrase,
+			order, p.PersonNoun, p.PeopleNoun, phrase, numbering,
 		))
-		if isCheckViolation(err, "random_requires_capacity") {
-			return errDrawNeedsPlaces
-		}
-		if err != nil {
+		if err := settingsViolation(err); err != nil {
+			if errors.Is(err, queue.ErrInvalidInput) {
+				return err
+			}
 			return fmt.Errorf("update queue: %w", err)
+		}
+
+		// Back to ordinary numbering after random numbers were handed out:
+		// counting on from wherever the counter stood would reach a number
+		// somebody already holds. It carries on above the highest one taken
+		// since the last reset instead.
+		if p.Numbering != nil && q.Numbering == queue.NumberSequential {
+			if err := tx.QueryRow(ctx,
+				`UPDATE queues SET next_number = GREATEST(next_number, COALESCE((
+				     SELECT max(number) + 1 FROM queue_entries
+				      WHERE queue_id = $1
+				        AND (status IN ('WAITING', 'SERVING')
+				             OR (status IN ('ATTENDED', 'SKIPPED') AND ($2::timestamptz IS NULL OR joined_at >= $2)))
+				 ), 1))
+				 WHERE id = $1
+				 RETURNING next_number`,
+				queueID, q.ResetAt,
+			).Scan(&q.NextNumber); err != nil {
+				return fmt.Errorf("carry numbering on: %w", err)
+			}
 		}
 
 		if !q.IsDraw() {
@@ -263,7 +310,7 @@ func (s *Store) PlacesTaken(ctx context.Context, q queue.Queue) (int, error) {
 func placesTaken(ctx context.Context, db querier, q queue.Queue) (int, error) {
 	query := `SELECT count(*) FROM queue_entries WHERE queue_id = $1 AND status IN ('WAITING', 'SERVING')`
 	args := []any{q.ID}
-	if q.IsDraw() {
+	if q.HasFixedPlaces() {
 		query = `SELECT count(*) FROM queue_entries
 		          WHERE queue_id = $1 AND status IN ('WAITING', 'SERVING', 'ATTENDED', 'SKIPPED')
 		            AND ($2::timestamptz IS NULL OR joined_at >= $2)`

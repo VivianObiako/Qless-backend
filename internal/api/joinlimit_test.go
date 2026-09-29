@@ -52,6 +52,24 @@ func TestDrawLetsARoomJoinFromOneAddress(t *testing.T) {
 	}
 }
 
+// Random numbers are the same room on the same connection, capped by the
+// same fixed places, so they get the same limit as a draw.
+func TestRandomNumbersLetARoomJoinFromOneAddress(t *testing.T) {
+	client := newTestClient(t)
+	created := client.createQueue("Join Limit Random Numbers")
+	owner := header{"Authorization", "Bearer " + created.OwnerToken}
+	if res := client.do(http.MethodPatch, "/api/queues/"+created.Queue.Slug,
+		[]byte(`{"numbering":"RANDOM","maxCapacity":40}`), owner); res.status != http.StatusOK {
+		t.Fatalf("give out random numbers: %d %s", res.status, res.body)
+	}
+
+	for i := range 30 {
+		if status := joinFrom(client, created.Queue.Slug, fmt.Sprintf("Team %d", i), "198.51.100.34", ""); status != http.StatusCreated {
+			t.Fatalf("team %d from the venue address: status %d, want 201", i, status)
+		}
+	}
+}
+
 // The bypass the stress test found: writing a new address at the front of
 // X-Forwarded-For used to buy a fresh limit. Behind Cloudflare it no longer
 // does, and a different real address still has its own.

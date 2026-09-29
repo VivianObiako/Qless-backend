@@ -966,3 +966,47 @@ blind would make live a code the owner never saw while retiring the one they
 hold; a browser test caught exactly that. The confirmation now carries the
 code, only that code is promoted, and one replaced meanwhile is refused with
 nothing changed. A client that sends no code gets the old behaviour.
+
+## Random numbers
+
+Built 29 September 2026. The hackathon asked for teams to get a random number
+when they join and to present from the lowest number up, rather than being
+drawn at random on the night.
+
+**How numbers are given out is its own setting.** `numbering` is
+`SEQUENTIAL` or `RANDOM`, beside `serving_order`, which still says who is
+called next. Random numbers called in order is a new setting, not a third
+serving order, because the call itself is ordinary: estimates, positions,
+"getting close" and push all work as they do in an ordinary queue. The draw
+stays, and settings offers the three as one choice: in order, random
+numbers, random call.
+
+**One kind of chance at a time.** Random numbers drawn at random would be a
+draw over a draw. The API and a database check both refuse the pair, and
+settings sends both fields in one request so switching straight from one to
+the other is never caught halfway.
+
+**Numbers come from 1 to the places, and the places are required.** A
+joiner gets an unused number picked by Postgres inside the join's locked
+transaction, so two teams joining at once cannot get the same one. Places
+count the same way as a draw's: waiting, being served, done and skipped all
+hold a number; a cancel frees it for somebody else. When no number is free
+the queue is full. Raising the places adds new numbers at the top, so a team
+that was missed can still join.
+
+**Switching mode never repeats a number.** Going back to 1, 2, 3 carries on
+above the highest number handed out since the last reset. Going into random
+numbers skips every number already held.
+
+**The ticket keeps its shape.** Before joining, the place where the wait
+estimate sits says "Luck of the draw". The pass says the number was drawn at
+random when you joined. The wall is unchanged, and the pass board's label
+follows the queue's call phrase.
+
+**It gets the draw's wider join limit.** A room of teams on one venue
+connection hit the five-a-minute limit on the sixth scan. Any queue with
+fixed places now gets the draw's limit, since the places cap what a flood
+could take.
+
+**Mode is set in settings, not when creating a queue.** The create form is
+unchanged; a queue starts in order and is switched once its places are set.
