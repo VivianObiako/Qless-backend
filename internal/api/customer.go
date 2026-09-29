@@ -28,11 +28,11 @@ func (s *Server) joinQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A draw is joined by a room of people on one venue connection, and its
-	// fixed places already cap what a flood could take, so it gets its own,
-	// wider limit. A queue served in order keeps the tight one.
+	// A draw or random numbers is joined by a room of people on one venue
+	// connection, and its fixed places already cap what a flood could take,
+	// so it gets its own, wider limit. An open queue keeps the tight one.
 	limiter := s.joinLimiter
-	if q.IsDraw() {
+	if q.HasFixedPlaces() {
 		limiter = s.drawJoinLimiter
 	}
 	if !limiter.Allow(httpx.ClientIP(r) + "|" + q.ID) {
