@@ -182,6 +182,8 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict, "no_free_seat", "Every chair is taken. Finish with somebody first, or say which chair.")
 	case errors.Is(err, queue.ErrEntryNotActive):
 		httpx.WriteError(w, http.StatusConflict, "entry_not_active", "That number has already been dealt with.")
+	case errors.Is(err, queue.ErrRecoveryCodeReplaced):
+		httpx.WriteError(w, http.StatusConflict, "recovery_code_replaced", "This code was replaced by a newer one on another device, so it hasn't been saved. Your current code still works. Get a new code and save that one.")
 	case errors.Is(err, queue.ErrRecallExpired):
 		httpx.WriteError(w, http.StatusConflict, "recall_expired", "It's been too long since they were skipped. They can rejoin for a new number.")
 	case errors.Is(err, queue.ErrNotInQueue):

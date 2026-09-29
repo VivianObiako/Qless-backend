@@ -167,22 +167,75 @@ func (s *Store) RotateRecoveryCode(ctx context.Context, ownerID, redeemedHash, p
 	return nil
 }
 
+// StageRecoveryCode sets a new code beside the live one for a signed-in owner
+// who has lost theirs. Both work until AcknowledgeRecoveryCode promotes the new
+// one, so a response lost on the way to the owner never leaves them holding
+// nothing. A second request replaces the first staged code.
+func (s *Store) StageRecoveryCode(ctx context.Context, ownerID, pendingHash string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE owners
+		    SET pending_recovery_code_hash = $2,
+		        updated_at = now()
+		  WHERE id = $1`,
+		ownerID, pendingHash,
+	)
+	if err != nil {
+		return fmt.Errorf("stage recovery code: %w", err)
+	}
+	return nil
+}
+
 // AcknowledgeRecoveryCode promotes the staged code, which is the moment the
 // redeemed one stops working. Acknowledging with nothing staged is not an
 // error: the caller is asking for a state the row is already in.
-func (s *Store) AcknowledgeRecoveryCode(ctx context.Context, ownerID string) error {
-	_, err := s.pool.Exec(ctx,
+//
+// With a code hash, only that code is promoted. The staged slot is shared:
+// signing in elsewhere, or asking for a new code on another device, replaces
+// what is staged, and promoting blind would make live a code this owner never
+// saw while retiring the one they hold. A code that has been replaced answers
+// ErrRecoveryCodeReplaced and changes nothing; one already promoted, a second
+// press of the same button, is success.
+func (s *Store) AcknowledgeRecoveryCode(ctx context.Context, ownerID, codeHash string) error {
+	if codeHash == "" {
+		_, err := s.pool.Exec(ctx,
+			`UPDATE owners
+			    SET recovery_code_hash = pending_recovery_code_hash,
+			        pending_recovery_code_hash = NULL,
+			        updated_at = now()
+			  WHERE id = $1 AND pending_recovery_code_hash IS NOT NULL`,
+			ownerID,
+		)
+		if err != nil {
+			return fmt.Errorf("acknowledge recovery code: %w", err)
+		}
+		return nil
+	}
+
+	tag, err := s.pool.Exec(ctx,
 		`UPDATE owners
 		    SET recovery_code_hash = pending_recovery_code_hash,
 		        pending_recovery_code_hash = NULL,
 		        updated_at = now()
-		  WHERE id = $1 AND pending_recovery_code_hash IS NOT NULL`,
-		ownerID,
+		  WHERE id = $1 AND pending_recovery_code_hash = $2`,
+		ownerID, codeHash,
 	)
 	if err != nil {
 		return fmt.Errorf("acknowledge recovery code: %w", err)
 	}
-	return nil
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+
+	var live bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT recovery_code_hash = $2 FROM owners WHERE id = $1`, ownerID, codeHash,
+	).Scan(&live); err != nil {
+		return fmt.Errorf("check acknowledged code: %w", err)
+	}
+	if live {
+		return nil
+	}
+	return queue.ErrRecoveryCodeReplaced
 }
 
 // RevokeOtherOwnerSessions signs out the owner's other devices and returns how

@@ -31,6 +31,7 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	// answers that from who the caller turns out to be.
 	mux.HandleFunc("POST /api/access/redeem", s.redeemCode)
 	mux.HandleFunc("POST /api/access/recovery-code/acknowledge", s.acknowledgeRecoveryCode)
+	mux.HandleFunc("POST /api/me/recovery-code", s.issueRecoveryCode)
 	mux.HandleFunc("GET /api/me/queues", s.myQueues)
 	mux.HandleFunc("POST /api/sessions/revoke-others", s.revokeOtherSessions)
 	mux.HandleFunc("PATCH /api/me", s.updateMe)
