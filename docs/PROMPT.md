@@ -22,7 +22,7 @@ Build the real product, not scaffolding. No placeholder buttons, no core functio
 | | |
 |---|---|
 | Backend | Go 1.23+, stdlib `net/http` with `ServeMux` method+path patterns. No router dependency. |
-| DB | PostgreSQL 16, `pgx/v5`, hand-written SQL. No ORM. |
+| DB | PostgreSQL 18, `pgx/v5`, hand-written SQL. No ORM. |
 | Migrations | `goose`, plain `.sql` files in `/migrations` |
 | WebSockets | `gorilla/websocket` |
 | Frontend | Next.js 16 App Router, TypeScript `strict`, Tailwind v4 |
