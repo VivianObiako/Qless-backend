@@ -77,14 +77,14 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 	var entry queue.Entry
 
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		var status, order string
+		var status, order, numbering string
 		var maxCapacity *int
 		var nextNumber int
 		var resetAt *time.Time
 
 		err := tx.QueryRow(ctx,
-			`SELECT status, max_capacity, next_number, serving_order, reset_at FROM queues WHERE id = $1 FOR UPDATE`, queueID,
-		).Scan(&status, &maxCapacity, &nextNumber, &order, &resetAt)
+			`SELECT status, max_capacity, next_number, serving_order, numbering, reset_at FROM queues WHERE id = $1 FOR UPDATE`, queueID,
+		).Scan(&status, &maxCapacity, &nextNumber, &order, &numbering, &resetAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return queue.ErrNotFound
 		}
@@ -116,6 +116,7 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 			taken, err := placesTaken(ctx, tx, queue.Queue{
 				ID:           queueID,
 				ServingOrder: queue.ServingOrder(order),
+				Numbering:    queue.Numbering(numbering),
 				ResetAt:      resetAt,
 			})
 			if err != nil {
@@ -126,20 +127,34 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 			}
 		}
 
+		random := queue.Numbering(numbering) == queue.NumberRandom && maxCapacity != nil
+		number := nextNumber
+		if random {
+			number, err = randomFreeNumber(ctx, tx, queueID, *maxCapacity, resetAt)
+			if err != nil {
+				return err
+			}
+		}
+
 		entry, err = scanEntry(tx.QueryRow(ctx,
 			`INSERT INTO queue_entries (queue_id, number, customer_name, customer_token_hash, walk_in)
 			 VALUES ($1, $2, $3, $4, $5)
 			 RETURNING `+entryColumns,
-			queueID, nextNumber, customerName, customerTokenHash, walkIn,
+			queueID, number, customerName, customerTokenHash, walkIn,
 		))
 		if err != nil {
 			return fmt.Errorf("insert entry: %w", err)
 		}
 
-		if _, err := tx.Exec(ctx,
-			`UPDATE queues SET next_number = next_number + 1, updated_at = now() WHERE id = $1`, queueID,
-		); err != nil {
-			return fmt.Errorf("advance next number: %w", err)
+		// Random numbers leave the counter alone: it only matters again if
+		// the owner switches back, and that switch moves it past every number
+		// taken.
+		if !random {
+			if _, err := tx.Exec(ctx,
+				`UPDATE queues SET next_number = next_number + 1, updated_at = now() WHERE id = $1`, queueID,
+			); err != nil {
+				return fmt.Errorf("advance next number: %w", err)
+			}
 		}
 
 		return nil
@@ -154,6 +169,34 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 		return queue.Entry{}, err
 	}
 	return entry, nil
+}
+
+// randomFreeNumber picks a random number from 1 to the queue's places that
+// nobody holds: not anyone in line, and not anyone who has been called since
+// the last reset, since their number keeps its place. A cancelled number goes
+// back into the pool. Runs under the queue lock the join holds, so two joins
+// cannot pick the same one.
+func randomFreeNumber(ctx context.Context, tx pgx.Tx, queueID string, places int, resetAt *time.Time) (int, error) {
+	var number int
+	err := tx.QueryRow(ctx,
+		`SELECT n FROM generate_series(1, $2::int) AS n
+		  WHERE NOT EXISTS (
+		      SELECT 1 FROM queue_entries e
+		       WHERE e.queue_id = $1 AND e.number = n
+		         AND (e.status IN ('WAITING', 'SERVING')
+		              OR (e.status IN ('ATTENDED', 'SKIPPED') AND ($3::timestamptz IS NULL OR e.joined_at >= $3)))
+		  )
+		  ORDER BY random()
+		  LIMIT 1`,
+		queueID, places, resetAt,
+	).Scan(&number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, queue.ErrQueueFull
+	}
+	if err != nil {
+		return 0, fmt.Errorf("pick a random number: %w", err)
+	}
+	return number, nil
 }
 
 // MyEntry returns the customer's most recent entry in this queue, whatever its

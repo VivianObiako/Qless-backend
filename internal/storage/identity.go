@@ -241,13 +241,14 @@ func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.
 			status  string
 			order   string
 			phrase  string
+			numbers string
 			serving *int
 		)
 		err := rows.Scan(
 			&card.ID, &card.Name, &card.Slug, &card.Description,
 			&card.AverageServiceMinutes, &card.MaxCapacity, &status, &card.NextNumber,
 			&card.ShowNamesToOperators, &card.HoldMinutes, &card.PauseNote, &card.SeatsFixed,
-			&order, &card.PersonNoun, &card.PeopleNoun, &phrase, &card.ResetAt, &card.ArchivedAt,
+			&order, &card.PersonNoun, &card.PeopleNoun, &phrase, &numbers, &card.ResetAt, &card.ArchivedAt,
 			&card.CreatedAt, &card.UpdatedAt,
 			&serving, &card.ServingCount, &card.OpenSeats, &card.WaitingCount,
 		)
@@ -257,6 +258,7 @@ func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.
 		card.Status = queue.Status(status)
 		card.ServingOrder = queue.ServingOrder(order)
 		card.CallPhrase = queue.CallPhrase(phrase)
+		card.Numbering = queue.Numbering(numbers)
 		card.ServingNumber = serving
 		cards = append(cards, card)
 	}

@@ -64,6 +64,21 @@ func (p CallPhrase) Valid() bool {
 	return p == CallServing || p == CallPresenting || p == CallSeeing || p == CallUp
 }
 
+// Numbering is how numbers are given out. Sequential is 1, 2, 3 in the order
+// people join. Random hands each joiner a random unused number from 1 to the
+// queue's places; the queue is still called from the lowest number up, so the
+// running order is set by chance rather than by who scanned first.
+type Numbering string
+
+const (
+	NumberSequential Numbering = "SEQUENTIAL"
+	NumberRandom     Numbering = "RANDOM"
+)
+
+func (n Numbering) Valid() bool {
+	return n == NumberSequential || n == NumberRandom
+}
+
 // What the people in a queue are called unless the owner says otherwise, and
 // the longest word the columns accept.
 const (
@@ -115,6 +130,10 @@ type Queue struct {
 	// and the pass. Serving unless the owner picks another.
 	CallPhrase CallPhrase `json:"callPhrase"`
 
+	// Numbering is how numbers are given out. Random numbers need a
+	// MaxCapacity, the range they are drawn from, and never go with a draw.
+	Numbering Numbering `json:"numbering"`
+
 	// ResetAt is when the numbering last started again; nil for a queue
 	// never reset. A draw counts its places from here, so a number from a
 	// previous event does not take a place at this one.
@@ -131,6 +150,13 @@ type Queue struct {
 // IsDraw reports whether this queue calls people at random.
 func (q Queue) IsDraw() bool {
 	return q.ServingOrder == ServingRandom
+}
+
+// HasFixedPlaces reports whether this queue's capacity is a fixed number of
+// places counted by numbers handed out, rather than people in line: true for
+// a draw and for random numbers, where a number once given keeps its place.
+func (q Queue) HasFixedPlaces() bool {
+	return q.IsDraw() || q.Numbering == NumberRandom
 }
 
 // RecallWindow is how long a skipped customer can be called back with the
@@ -328,6 +354,7 @@ type Summary struct {
 	PersonNoun   string       `json:"personNoun"`
 	PeopleNoun   string       `json:"peopleNoun"`
 	CallPhrase   CallPhrase   `json:"callPhrase"`
+	Numbering    Numbering    `json:"numbering"`
 }
 
 func (q Queue) Summary() Summary {
@@ -345,6 +372,7 @@ func (q Queue) Summary() Summary {
 		PersonNoun:            q.PersonNoun,
 		PeopleNoun:            q.PeopleNoun,
 		CallPhrase:            q.CallPhrase,
+		Numbering:             q.Numbering,
 	}
 }
 

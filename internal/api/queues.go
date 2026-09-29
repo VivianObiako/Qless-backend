@@ -23,6 +23,7 @@ type createQueueRequest struct {
 	PersonNoun   string `json:"personNoun"`
 	PeopleNoun   string `json:"peopleNoun"`
 	CallPhrase   string `json:"callPhrase"`
+	Numbering    string `json:"numbering"`
 
 	// OwnerName is read only when this request creates the business. An
 	// owner adding a queue already has whatever name they gave.
@@ -67,6 +68,33 @@ func validCallPhrase(raw string) (queue.CallPhrase, error) {
 	return phrase, nil
 }
 
+// validNumbering reads how numbers are given out, blank meaning in sequence.
+func validNumbering(raw string) (queue.Numbering, error) {
+	if raw == "" {
+		return queue.NumberSequential, nil
+	}
+	numbering := queue.Numbering(raw)
+	if !numbering.Valid() {
+		return "", invalid("Numbering must be SEQUENTIAL or RANDOM.")
+	}
+	return numbering, nil
+}
+
+// checkRandomness refuses the two combinations the queue table refuses, on
+// what the queue would look like once the request is applied.
+func checkRandomness(order queue.ServingOrder, numbering queue.Numbering, capacity *int) error {
+	if numbering == queue.NumberRandom && order == queue.ServingRandom {
+		return invalid("Choose random numbers or a random call, not both.")
+	}
+	if numbering == queue.NumberRandom && capacity == nil {
+		return invalid("Random numbers need a fixed number of places, from 1 to 1000.")
+	}
+	if order == queue.ServingRandom && capacity == nil {
+		return invalid(drawNeedsPlaces)
+	}
+	return nil
+}
+
 const drawNeedsPlaces = "A draw needs a fixed number of places, from 1 to 1000."
 
 func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
@@ -95,8 +123,12 @@ func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 	if err != nil {
 		return storage.CreateQueueParams{}, err
 	}
-	if order == queue.ServingRandom && r.MaxCapacity == nil {
-		return storage.CreateQueueParams{}, invalid(drawNeedsPlaces)
+	numbering, err := validNumbering(r.Numbering)
+	if err != nil {
+		return storage.CreateQueueParams{}, err
+	}
+	if err := checkRandomness(order, numbering, r.MaxCapacity); err != nil {
+		return storage.CreateQueueParams{}, err
 	}
 
 	personNoun, err := validNoun(r.PersonNoun, queue.DefaultPersonNoun)
@@ -127,6 +159,7 @@ func (r createQueueRequest) validate() (storage.CreateQueueParams, error) {
 		PersonNoun:            personNoun,
 		PeopleNoun:            peopleNoun,
 		CallPhrase:            phrase,
+		Numbering:             numbering,
 		NewOwnerName:          ownerName,
 	}, nil
 }
