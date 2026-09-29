@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:16-alpine
+    # Same major version as production on Neon.
+    image: postgres:18-alpine
     container_name: qless-db
     environment:
       POSTGRES_USER: qless
@@ -9,7 +10,11 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - qless-pgdata:/var/lib/postgresql/data
+      # Postgres 18 images keep data in a versioned folder under
+      # /var/lib/postgresql, so the volume mounts there. It is a new volume:
+      # data from another major version cannot be opened in place, and the old
+      # qless-pgdata volume is left alone rather than overwritten.
+      - qless-pgdata18:/var/lib/postgresql
       - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qless -d qless"]
@@ -18,4 +23,4 @@ services:
       retries: 30
 
 volumes:
-  qless-pgdata:
+  qless-pgdata18:
