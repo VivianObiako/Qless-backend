@@ -23,6 +23,11 @@ var (
 	ErrUnauthorized  = errors.New("not authorized to operate this queue")
 	ErrInvalidInput  = errors.New("invalid input")
 
+	// ErrRecoveryCodeReplaced is a save screen confirming a code that is no
+	// longer the one waiting: a sign-in or a newer request elsewhere replaced
+	// it. Nothing is changed, and the owner's current code still works.
+	ErrRecoveryCodeReplaced = errors.New("recovery code was replaced")
+
 	// ErrInvalidCode is the single answer redeem gives to every failure: a code
 	// that never existed, one that has been rotated away, and one belonging to a
 	// revoked operator are indistinguishable from outside.

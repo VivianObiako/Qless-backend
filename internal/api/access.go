@@ -193,11 +193,69 @@ func (s *Server) acknowledgeRecoveryCode(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := s.store.AcknowledgeRecoveryCode(r.Context(), actor.OwnerID); err != nil {
+	// The code being confirmed, when the client sends it, so only that code is
+	// made live. A client from before this sends no body and gets the old
+	// behaviour.
+	var codeHash string
+	if r.ContentLength != 0 {
+		var req acknowledgeRequest
+		if err := httpx.DecodeJSON(w, r, &req); err != nil {
+			writeError(w, invalid("We couldn't read that request."))
+			return
+		}
+		if code := strings.TrimSpace(req.Code); code != "" {
+			codeHash = token.HashCode(code)
+		}
+	}
+
+	if err := s.store.AcknowledgeRecoveryCode(r.Context(), actor.OwnerID, codeHash); err != nil {
 		writeError(w, err)
 		return
 	}
 	httpx.NoContent(w)
+}
+
+type acknowledgeRequest struct {
+	Code string `json:"code"`
+}
+
+type newRecoveryCodeResponse struct {
+	RecoveryCode string `json:"recoveryCode"`
+}
+
+// issueRecoveryCode gives a signed-in owner a new recovery code, for the owner
+// who has lost theirs while a device is still signed in. Only a hash of a code
+// is ever kept, so the old one cannot be shown: a new one is issued instead.
+//
+// It is staged, not swapped in. The old code keeps working until the owner
+// acknowledges the new one on the same endpoint recovery uses, so a closed tab
+// between here and the save screen costs nothing.
+func (s *Server) issueRecoveryCode(w http.ResponseWriter, r *http.Request) {
+	if !s.writeLimiter.Allow(httpx.ClientIP(r)) {
+		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests. Try again in a moment.")
+		return
+	}
+	actor, ok := s.requireActor(w, r)
+	if !ok {
+		return
+	}
+	if !actor.IsOwner() {
+		// A recovery code gets someone into the whole business. Staff hold
+		// their own access codes, which only the owner issues.
+		writeError(w, queue.ErrUnauthorized)
+		return
+	}
+
+	code, err := token.NewCode()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.store.StageRecoveryCode(r.Context(), actor.OwnerID, token.HashCode(code)); err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, newRecoveryCodeResponse{RecoveryCode: code})
 }
 
 // myQueuesResponse answers "who am I and what can I open" in one request. It is
