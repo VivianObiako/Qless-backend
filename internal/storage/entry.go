@@ -10,21 +10,22 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in, seat_id, drawn_at`
+const entryColumns = `id, queue_id, number, customer_name, status, joined_at, started_at, completed_at, served_at, presence, presence_at, walk_in, seat_id, drawn_at, acted_by_type`
 
 func scanEntry(row pgx.Row) (queue.Entry, error) {
 	var e queue.Entry
 	var status string
-	var presence *string
+	var presence, actedBy *string
 	err := row.Scan(
 		&e.ID, &e.QueueID, &e.Number, &e.CustomerName, &status,
 		&e.JoinedAt, &e.StartedAt, &e.CompletedAt, &e.ServedAt,
-		&presence, &e.PresenceAt, &e.WalkIn, &e.SeatID, &e.DrawnAt,
+		&presence, &e.PresenceAt, &e.WalkIn, &e.SeatID, &e.DrawnAt, &actedBy,
 	)
 	if err != nil {
 		return queue.Entry{}, err
 	}
 	e.Status = queue.EntryStatus(status)
+	e.RemovedByStaff = e.Status == queue.EntryLeft && actedBy != nil
 	if presence != nil {
 		p := queue.Presence(*presence)
 		e.Presence = &p
@@ -503,6 +504,12 @@ func (s *Store) SkipEntry(ctx context.Context, queueID, entryID string, actor qu
 	return s.endEntry(ctx, queueID, entryID, queue.EntrySkipped, actor)
 }
 
+// RemoveEntry is staff taking someone off the list at their request. It ends
+// as LEFT, like a customer's own cancel, but carries who did it.
+func (s *Store) RemoveEntry(ctx context.Context, queueID, entryID string, actor queue.Actor) (queue.Entry, error) {
+	return s.endEntry(ctx, queueID, entryID, queue.EntryLeft, actor)
+}
+
 func (s *Store) endEntry(
 	ctx context.Context,
 	queueID, entryID string,
@@ -596,7 +603,7 @@ func (s *Store) ResetQueue(ctx context.Context, queueID string) (int, error) {
 // served whom.
 func (s *Store) History(ctx context.Context, queueID string, limit int, operatorID string) ([]queue.HistoryEntry, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+prefixed(entryColumns, "e")+`, e.acted_by_type, o.display_name, COALESCE(st.name, '')
+		`SELECT `+prefixed(entryColumns, "e")+`, o.display_name, COALESCE(st.name, '')
 		   FROM queue_entries e
 		   LEFT JOIN operators o ON o.id = e.acted_by_operator_id
 		   LEFT JOIN seats st ON st.id = e.seat_id
@@ -624,13 +631,14 @@ func (s *Store) History(ctx context.Context, queueID string, limit int, operator
 		err := rows.Scan(
 			&entry.ID, &entry.QueueID, &entry.Number, &entry.CustomerName, &status,
 			&entry.JoinedAt, &entry.StartedAt, &entry.CompletedAt, &entry.ServedAt,
-			&presence, &entry.PresenceAt, &entry.WalkIn, &entry.SeatID, &entry.DrawnAt,
-			&actedByType, &operatorName, &seatName,
+			&presence, &entry.PresenceAt, &entry.WalkIn, &entry.SeatID, &entry.DrawnAt, &actedByType,
+			&operatorName, &seatName,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan history entry: %w", err)
 		}
 		entry.Status = queue.EntryStatus(status)
+		entry.RemovedByStaff = entry.Status == queue.EntryLeft && actedByType != nil
 		if presence != nil {
 			p := queue.Presence(*presence)
 			entry.Presence = &p

@@ -13,6 +13,10 @@ var (
 	ErrAlreadyJoined = errors.New("already in this queue")
 	ErrNotInQueue    = errors.New("no active entry in this queue")
 
+	// ErrLeaveDisabled is a customer cancelling on a queue whose owner has
+	// turned that off: staff remove people there instead.
+	ErrLeaveDisabled = errors.New("customers cannot leave this queue themselves")
+
 	// ErrEntryNotActive is a stale dashboard, not a broken one: the operator
 	// clicked a row that someone else had already dealt with.
 	ErrEntryNotActive = errors.New("entry is no longer active")

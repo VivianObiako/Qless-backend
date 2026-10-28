@@ -138,6 +138,10 @@ func (s *Server) leaveQueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, queue.ErrNotInQueue)
 		return
 	}
+	if !q.CustomersCanLeave {
+		writeError(w, queue.ErrLeaveDisabled)
+		return
+	}
 
 	entry, err := s.store.Leave(r.Context(), q.ID, token.Hash(raw))
 	if err != nil {
