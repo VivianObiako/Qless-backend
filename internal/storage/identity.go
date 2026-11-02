@@ -302,7 +302,7 @@ func (s *Store) QueuesForActor(ctx context.Context, actor queue.Actor) ([]queue.
 			&card.AverageServiceMinutes, &card.MaxCapacity, &status, &card.NextNumber,
 			&card.ShowNamesToOperators, &card.HoldMinutes, &card.PauseNote, &card.SeatsFixed,
 			&order, &card.PersonNoun, &card.PeopleNoun, &phrase, &numbers, &card.ResetAt, &card.ArchivedAt,
-			&card.CreatedAt, &card.UpdatedAt, &card.CustomersCanLeave,
+			&card.CreatedAt, &card.UpdatedAt, &card.CustomersCanLeave, &card.AsksTeamName,
 			&serving, &card.ServingCount, &card.OpenSeats, &card.WaitingCount,
 		)
 		if err != nil {

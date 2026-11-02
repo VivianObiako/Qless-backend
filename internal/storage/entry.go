@@ -82,10 +82,11 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 		var maxCapacity *int
 		var nextNumber int
 		var resetAt *time.Time
+		var asksTeamName bool
 
 		err := tx.QueryRow(ctx,
-			`SELECT status, max_capacity, next_number, serving_order, numbering, reset_at FROM queues WHERE id = $1 FOR UPDATE`, queueID,
-		).Scan(&status, &maxCapacity, &nextNumber, &order, &numbering, &resetAt)
+			`SELECT status, max_capacity, next_number, serving_order, numbering, reset_at, asks_team_name FROM queues WHERE id = $1 FOR UPDATE`, queueID,
+		).Scan(&status, &maxCapacity, &nextNumber, &order, &numbering, &resetAt, &asksTeamName)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return queue.ErrNotFound
 		}
@@ -111,6 +112,12 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("check existing entry: %w", err)
+		}
+
+		if asksTeamName {
+			if err := teamNameFree(ctx, tx, queueID, customerName); err != nil {
+				return err
+			}
 		}
 
 		if maxCapacity != nil {
@@ -170,6 +177,29 @@ func (s *Store) join(ctx context.Context, queueID, customerName, customerTokenHa
 		return queue.Entry{}, err
 	}
 	return entry, nil
+}
+
+// teamNameFree refuses a name a team already holds a place under. Capitals and
+// runs of spaces do not tell two names apart. Runs under the queue lock the
+// join holds, so two phones sending the same name cannot both get in.
+func teamNameFree(ctx context.Context, tx pgx.Tx, queueID, name string) error {
+	var taken bool
+	err := tx.QueryRow(ctx,
+		`SELECT EXISTS (
+		     SELECT 1 FROM queue_entries
+		      WHERE queue_id = $1 AND status IN ('WAITING', 'SERVING')
+		        AND regexp_replace(lower(btrim(customer_name)), '\s+', ' ', 'g')
+		          = regexp_replace(lower(btrim($2)), '\s+', ' ', 'g')
+		 )`,
+		queueID, name,
+	).Scan(&taken)
+	if err != nil {
+		return fmt.Errorf("check team name: %w", err)
+	}
+	if taken {
+		return queue.ErrTeamNameTaken
+	}
+	return nil
 }
 
 // randomFreeNumber picks a random number from 1 to the queue's places that

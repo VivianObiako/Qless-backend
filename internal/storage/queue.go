@@ -11,7 +11,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, call_phrase, numbering, reset_at, archived_at, created_at, updated_at, customers_can_leave`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, call_phrase, numbering, reset_at, archived_at, created_at, updated_at, customers_can_leave, asks_team_name`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
@@ -21,7 +21,7 @@ func scanQueue(row pgx.Row) (queue.Queue, error) {
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
 		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed,
 		&order, &q.PersonNoun, &q.PeopleNoun, &phrase, &numbering, &q.ResetAt,
-		&q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt, &q.CustomersCanLeave,
+		&q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt, &q.CustomersCanLeave, &q.AsksTeamName,
 	)
 	if err != nil {
 		return queue.Queue{}, err
@@ -174,6 +174,7 @@ type UpdateQueueParams struct {
 	HoldMinutes           *int
 	SeatsFixed            *bool
 	CustomersCanLeave     *bool
+	AsksTeamName          *bool
 	ServingOrder          *queue.ServingOrder
 	PersonNoun            *string
 	PeopleNoun            *string
@@ -246,12 +247,13 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 			     call_phrase = COALESCE($13, call_phrase),
 			     numbering = COALESCE($14, numbering),
 			     customers_can_leave = COALESCE($15, customers_can_leave),
+			     asks_team_name = COALESCE($16, asks_team_name),
 			     updated_at = now()
 			 WHERE id = $1
 			 RETURNING `+queueColumns,
 			queueID, p.Name, p.Description, p.AverageServiceMinutes,
 			p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
-			order, p.PersonNoun, p.PeopleNoun, phrase, numbering, p.CustomersCanLeave,
+			order, p.PersonNoun, p.PeopleNoun, phrase, numbering, p.CustomersCanLeave, p.AsksTeamName,
 		))
 		if err := settingsViolation(err); err != nil {
 			if errors.Is(err, queue.ErrInvalidInput) {

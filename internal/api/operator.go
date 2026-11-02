@@ -384,6 +384,7 @@ type updateQueueRequest struct {
 	HoldMinutes           *int    `json:"holdMinutes"`
 	SeatsFixed            *bool   `json:"seatsFixed"`
 	CustomersCanLeave     *bool   `json:"customersCanLeave"`
+	AsksTeamName          *bool   `json:"asksTeamName"`
 	ServingOrder          *string `json:"servingOrder"`
 	PersonNoun            *string `json:"personNoun"`
 	PeopleNoun            *string `json:"peopleNoun"`
@@ -409,6 +410,7 @@ func (r updateQueueRequest) validate(capacityPresent bool, current queue.Queue) 
 		HoldMinutes:           r.HoldMinutes,
 		SeatsFixed:            r.SeatsFixed,
 		CustomersCanLeave:     r.CustomersCanLeave,
+		AsksTeamName:          r.AsksTeamName,
 	}
 
 	order := current.ServingOrder
@@ -566,7 +568,11 @@ func (s *Server) addWalkIn(w http.ResponseWriter, r *http.Request) {
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		writeError(w, invalid("Enter their name to add them."))
+		if q.AsksTeamName {
+			writeError(w, invalid("Enter the team name to add them."))
+		} else {
+			writeError(w, invalid("Enter their name to add them."))
+		}
 		return
 	}
 	if len([]rune(name)) > 60 {
