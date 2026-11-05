@@ -188,6 +188,8 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict, "recall_expired", "It's been too long since they were skipped. They can rejoin for a new number.")
 	case errors.Is(err, queue.ErrLeaveDisabled):
 		httpx.WriteError(w, http.StatusForbidden, "leave_disabled", "Ask the admin and they will take you off the list.")
+	case errors.Is(err, queue.ErrTeamNameTaken):
+		httpx.WriteError(w, http.StatusConflict, "team_name_taken", "A team with that name is already in the queue.")
 	case errors.Is(err, queue.ErrNotInQueue):
 		httpx.WriteError(w, http.StatusNotFound, "not_in_queue", "Your previous queue position is no longer active.")
 	case errors.Is(err, queue.ErrQueuePaused):

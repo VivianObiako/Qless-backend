@@ -134,6 +134,10 @@ type Queue struct {
 	// only staff take someone off the list.
 	CustomersCanLeave bool `json:"customersCanLeave"`
 
+	// AsksTeamName is whether the join page asks for a team name. On, a name
+	// already waiting or being seen cannot join again.
+	AsksTeamName bool `json:"asksTeamName"`
+
 	// Numbering is how numbers are given out. Random numbers need a
 	// MaxCapacity, the range they are drawn from, and never go with a draw.
 	Numbering Numbering `json:"numbering"`
@@ -366,6 +370,7 @@ type Summary struct {
 
 	// CustomersCanLeave is public: the pass and the join page change on it.
 	CustomersCanLeave bool `json:"customersCanLeave"`
+	AsksTeamName      bool `json:"asksTeamName"`
 }
 
 func (q Queue) Summary() Summary {
@@ -385,6 +390,7 @@ func (q Queue) Summary() Summary {
 		CallPhrase:            q.CallPhrase,
 		Numbering:             q.Numbering,
 		CustomersCanLeave:     q.CustomersCanLeave,
+		AsksTeamName:          q.AsksTeamName,
 	}
 }
 

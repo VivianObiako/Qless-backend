@@ -1030,3 +1030,22 @@ status a customer's own cancel gives, with the staff member recorded. That
 record is what tells the two apart: the phone of someone removed says "The
 admin removed you from the queue", not "You cancelled your place", and
 history shows who did it.
+
+## Team-name queues
+
+**A queue can ask for a team name instead of a person's.** A per-queue
+setting, `asksTeamName`, off by default, chosen in Settings as "Join page asks
+for: Their name / A team name". It is for competitions and hackathons, where
+one person giving their own name instead of the team's means nobody can match
+the entry to the registration. On, the join page and the counter's walk-in form
+ask for "Team name". Choosing it also turns the nouns to team/teams when they
+were still the ordinary customer/customers, so every screen says team; nouns the
+owner chose stay.
+
+**A team already in line cannot join again.** While a name is waiting or being
+seen, the same name is refused with 409 `team_name_taken`, from a phone or from
+the counter. Capitals and runs of spaces do not tell two names apart. The check
+runs under the queue's row lock that numbering already takes, so two phones
+sending the same name at once cannot both get in. Once the team has been seen,
+skipped or has left, the name is free. Ordinary queues are untouched: two people
+called Ada can still both join.
