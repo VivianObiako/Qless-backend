@@ -1,6 +1,6 @@
-# Qless — API
+# Less Queues — API
 
-The Go backend for [Qless](https://github.com/VivianObiako/Qless), a zero-install
+The Go backend for [Less Queues](https://github.com/VivianObiako/Qless), a zero-install
 virtual queue for physical businesses. The Next.js frontend lives in its own
 repository.
 
@@ -69,7 +69,7 @@ There are three, and they share nothing:
 | Runs on | Your machine | Render `lessqueues-api-staging` | Render `qless-api-eu` |
 | Branch | any | `staging`, once CI passes | `main`, once CI passes |
 | Database | Docker Postgres from `docker-compose.yml` | Its own empty Neon database | Neon project `qless-eu` |
-| Web origin | `http://localhost:3000` | The Vercel `staging` branch and previews (`staging.lessqueues.com` after the rename) | `https://qless-indol.vercel.app` (`lessqueues.com` after the rename) |
+| Web origin | `http://localhost:3000` | `https://staging.lessqueues.com` and Vercel previews | `https://lessqueues.com`, then the old `https://qless-indol.vercel.app` |
 | Push keys | optional | its own pair | its own pair |
 
 The rule that keeps them apart: **a value that names one environment never

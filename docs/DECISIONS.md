@@ -1049,3 +1049,36 @@ runs under the queue's row lock that numbering already takes, so two phones
 sending the same name at once cannot both get in. Once the team has been seen,
 skipped or has left, the name is free. Ordinary queues are untouched: two people
 called Ada can still both join.
+
+## Less Queues
+
+**The product is called Less Queues, at lessqueues.com.** QLess, Inc. holds a
+trademark in the same field, so Qless had to go. Only what people see changed:
+page titles, the wordmark, the manifest, the push title, the recovery code
+sheet. Internal names stay, because nobody sees them and renaming them only
+adds risk: the database and its role, the Go module, the Render services, and
+the `qless.*` keys in browser storage.
+
+**The old address hands its visitors over instead of sending them away.**
+Printed QR codes point at qless-indol.vercel.app for as long as the paper
+lasts, so it never goes away. Browser storage belongs to one address, so a
+plain redirect would arrive empty-handed: no ticket, no sign-in. Instead the old
+address moves each visitor to the same page on the new one, carrying this
+site's storage entries in the URL fragment, which no server ever sees. The new
+address keeps what arrives without overwriting anything it holds, keeps a
+sign-in's token and role together, and wipes the fragment at once. The rules
+are in `lib/handoff.ts` in the web repo, set per deployment by `SITE_URL` and
+`LEGACY_HOSTS`.
+
+**A handoff is only accepted from an old address.** Otherwise anyone could
+send a link that signs the visitor into the sender's own account, and the
+visitor's next queue would be theirs. The site sends no Referer, so dashboard
+links never leak their tokens; the one exception is the handoff, which sends
+the old address's bare origin and nothing more, and the new address checks it.
+A browser that strips even that arrives signed out, and gets back in with its
+recovery code.
+
+**Push alerts do not move.** A subscription belongs to the old address's
+service worker. A customer who had alerts on taps "Notify me" once on the new
+address.
+
