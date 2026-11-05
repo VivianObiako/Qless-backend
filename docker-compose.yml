@@ -1,4 +1,19 @@
 services:
+  # The API as production runs it, from the same Dockerfile. `docker compose up`
+  # starts both services; `make up` starts only the database, for working on
+  # the API itself with `make api`.
+  api:
+    build: .
+    container_name: qless-api
+    environment:
+      DATABASE_URL: postgres://qless:qless@db:5432/qless?sslmode=disable
+      ALLOWED_ORIGIN: http://localhost:3000
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     # Same major version as production on Neon.
     image: postgres:18-alpine

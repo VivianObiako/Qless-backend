@@ -4,20 +4,28 @@
 # tier does not expire, while Render's own free Postgres is time-limited. That
 # makes DATABASE_URL an ordinary secret set in the dashboard rather than a
 # value Render wires up for us.
+#
+# Both services deploy only once CI has passed on the commit, so a red build
+# never ships. That needs the Render GitHub app installed on this repository:
+# without it Render never hears about a push at all.
 services:
+  # Production, in Frankfurt beside the Neon database in AWS Europe Central 1
+  # and close to West Africa. Deploys from `main` only.
   - type: web
-    name: qless-api
+    name: qless-api-eu
+    region: frankfurt
     runtime: docker
     dockerfilePath: ./Dockerfile
+    branch: main
+    autoDeployTrigger: checksPass
     plan: free
     healthCheckPath: /healthz
     envVars:
       # Neon direct (unpooled) connection string. Needs sslmode=require.
       - key: DATABASE_URL
         sync: false
-      # Comma-separated web origins: the Vercel production domain first, then
-      # any preview domain that should be able to reach this API. The first
-      # one is also where a tapped push notification lands.
+      # Comma-separated web origins: the production domain only, never a
+      # preview. The first one is also where a tapped push notification lands.
       - key: ALLOWED_ORIGIN
         sync: false
       # Web Push. Optional: without a key pair the API runs and the customer's
@@ -33,17 +41,20 @@ services:
       - key: VAPID_SUBJECT
         sync: false
 
-  # The same API in Frankfurt, beside the Neon database in AWS Europe Central 1
-  # and closer to West Africa. A Render service cannot change region, so the
-  # move is a second service; the Oregon entry above goes once this one has
-  # taken over. Copy every secret from the Oregon service unchanged except
-  # DATABASE_URL, which points at the Frankfurt database. New VAPID keys would
-  # silently break every existing push subscription.
+  # Staging: where a change is proven before it reaches real users. It deploys
+  # from the `staging` branch rather than `main`, and it must never share a
+  # database, an origin list or a VAPID key pair with production. Point
+  # DATABASE_URL at its own empty Neon database (the schema is built by the
+  # migrations on first boot), not a branch of production, so no real customer
+  # data ever lands here. ALLOWED_ORIGIN lists the staging web domain and the
+  # Vercel preview domains, never the production one.
   - type: web
-    name: qless-api-eu
+    name: lessqueues-api-staging
     region: frankfurt
     runtime: docker
     dockerfilePath: ./Dockerfile
+    branch: staging
+    autoDeployTrigger: checksPass
     plan: free
     healthCheckPath: /healthz
     envVars:
@@ -51,6 +62,8 @@ services:
         sync: false
       - key: ALLOWED_ORIGIN
         sync: false
+      # A pair of its own: `go run ./cmd/vapid`. Reusing production's would let
+      # a staging deploy hold subscriptions that belong to real customers.
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY

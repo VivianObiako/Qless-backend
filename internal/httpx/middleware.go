@@ -70,17 +70,31 @@ func Logger(next http.Handler) http.Handler {
 
 // OriginAllowed reports whether origin is one this API answers to. A "*"
 // anywhere in the list opens it to every origin, which is what the tests use.
+// A "*" inside an entry stands for one run of characters with no dot or slash,
+// so https://qless-*-team.vercel.app matches every preview of that Vercel
+// project and nothing on another domain.
 //
 // The WebSocket handshake asks the same question through this function rather
 // than repeating the rule, because a handshake is not covered by CORS and the
 // two checks drifting apart is how a queue ends up readable by another site.
 func OriginAllowed(allowed []string, origin string) bool {
 	for _, candidate := range allowed {
-		if candidate == "*" || candidate == origin {
+		if candidate == "*" || candidate == origin || wildcardMatch(candidate, origin) {
 			return true
 		}
 	}
 	return false
+}
+
+func wildcardMatch(pattern, origin string) bool {
+	prefix, suffix, ok := strings.Cut(pattern, "*")
+	if !ok || len(origin) <= len(prefix)+len(suffix) {
+		return false
+	}
+	if !strings.HasPrefix(origin, prefix) || !strings.HasSuffix(origin, suffix) {
+		return false
+	}
+	return !strings.ContainsAny(origin[len(prefix):len(origin)-len(suffix)], "./:@")
 }
 
 // CORS allows the Next.js origin to call the API during development and in a

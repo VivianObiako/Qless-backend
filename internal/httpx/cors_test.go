@@ -45,6 +45,33 @@ func TestOriginAllowedTreatsStarAsEverything(t *testing.T) {
 	}
 }
 
+// Every Vercel preview has its own address, so staging lists one pattern for
+// them all. The star must not reach across a dot, or the pattern would also
+// match a host someone else controls.
+func TestOriginAllowedMatchesOneLabelWildcard(t *testing.T) {
+	allowed := []string{"https://qless-*-team.vercel.app"}
+
+	for _, origin := range []string{
+		"https://qless-abc123-team.vercel.app",
+		"https://qless-git-feature-x-team.vercel.app",
+	} {
+		if !httpx.OriginAllowed(allowed, origin) {
+			t.Errorf("preview origin %s was rejected", origin)
+		}
+	}
+	for _, origin := range []string{
+		"https://qless--team.vercel.app",
+		"https://qless-evil.test/x-team.vercel.app",
+		"https://qless-a.evil.test-team.vercel.app",
+		"https://qless-x-team.vercel.app.evil.test",
+		"http://qless-abc-team.vercel.app",
+	} {
+		if httpx.OriginAllowed(allowed, origin) {
+			t.Errorf("origin %q slipped through the wildcard", origin)
+		}
+	}
+}
+
 // The header has to name the origin that actually asked rather than the first
 // one configured, or a browser rejects the response as a mismatch.
 func TestCORSEchoesTheCallingOrigin(t *testing.T) {

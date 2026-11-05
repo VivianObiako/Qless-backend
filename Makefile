@@ -7,14 +7,14 @@ help: ## Show available commands
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 up: ## Start Postgres and wait for it to be ready
-	docker compose up -d --wait
+	docker compose up -d --wait db
 
 down: ## Stop Postgres
 	docker compose down
 
 reset-db: ## Destroy and recreate the database volume
 	docker compose down -v
-	docker compose up -d --wait
+	docker compose up -d --wait db
 
 migrate: ## Apply pending migrations
 	go run ./cmd/migrate
