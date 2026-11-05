@@ -17,6 +17,10 @@ var (
 	// turned that off: staff remove people there instead.
 	ErrLeaveDisabled = errors.New("customers cannot leave this queue themselves")
 
+	// ErrTeamNameTaken is a team-name queue joined under a name that is
+	// already waiting or being seen.
+	ErrTeamNameTaken = errors.New("a team with that name is already in the queue")
+
 	// ErrEntryNotActive is a stale dashboard, not a broken one: the operator
 	// clicked a row that someone else had already dealt with.
 	ErrEntryNotActive = errors.New("entry is no longer active")

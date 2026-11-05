@@ -48,7 +48,11 @@ func (s *Server) joinQueue(w http.ResponseWriter, r *http.Request) {
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		writeError(w, invalid("Enter your name to join the queue."))
+		if q.AsksTeamName {
+			writeError(w, invalid("Enter your team name to join the queue."))
+		} else {
+			writeError(w, invalid("Enter your name to join the queue."))
+		}
 		return
 	}
 	if len([]rune(name)) > 60 {
