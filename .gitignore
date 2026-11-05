@@ -8,3 +8,6 @@
 
 # macOS
 .DS_Store
+
+# Neon CLI context: each developer points it at their own project
+.neon
