@@ -130,6 +130,10 @@ type Queue struct {
 	// and the pass. Serving unless the owner picks another.
 	CallPhrase CallPhrase `json:"callPhrase"`
 
+	// CustomersCanLeave is whether the pass offers "Cancel my place". Off,
+	// only staff take someone off the list.
+	CustomersCanLeave bool `json:"customersCanLeave"`
+
 	// Numbering is how numbers are given out. Random numbers need a
 	// MaxCapacity, the range they are drawn from, and never go with a draw.
 	Numbering Numbering `json:"numbering"`
@@ -246,6 +250,10 @@ type Entry struct {
 	// recover this entry on a device, so the counter says so.
 	WalkIn bool `json:"walkIn"`
 
+	// RemovedByStaff is a LEFT entry that staff ended rather than the
+	// customer, so their phone does not tell them they cancelled.
+	RemovedByStaff bool `json:"removedByStaff"`
+
 	// SeatID is where they were called to. Nil while they wait, set by the
 	// call and kept afterwards so history can say which chair served them.
 	SeatID *string `json:"seatId"`
@@ -355,6 +363,9 @@ type Summary struct {
 	PeopleNoun   string       `json:"peopleNoun"`
 	CallPhrase   CallPhrase   `json:"callPhrase"`
 	Numbering    Numbering    `json:"numbering"`
+
+	// CustomersCanLeave is public: the pass and the join page change on it.
+	CustomersCanLeave bool `json:"customersCanLeave"`
 }
 
 func (q Queue) Summary() Summary {
@@ -373,6 +384,7 @@ func (q Queue) Summary() Summary {
 		PeopleNoun:            q.PeopleNoun,
 		CallPhrase:            q.CallPhrase,
 		Numbering:             q.Numbering,
+		CustomersCanLeave:     q.CustomersCanLeave,
 	}
 }
 

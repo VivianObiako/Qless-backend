@@ -224,6 +224,30 @@ func (s *Server) skipEntry(w http.ResponseWriter, r *http.Request) {
 	s.respondWithView(w, r, q.ID, actor)
 }
 
+// removeEntry takes someone off the list at their request. Shared with
+// operators: on a queue where customers cannot cancel, staff are the only way
+// out, and the counter is where they are asked.
+func (s *Server) removeEntry(w http.ResponseWriter, r *http.Request) {
+	q, actor, ok := s.requireQueueAccess(w, r)
+	if !ok {
+		return
+	}
+
+	id, ok := entryID(r)
+	if !ok {
+		writeError(w, queue.ErrEntryNotFound)
+		return
+	}
+
+	if _, err := s.store.RemoveEntry(r.Context(), q.ID, id, actor); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	s.publish(r.Context(), q.ID, EventCustomerLeft)
+	s.respondWithView(w, r, q.ID, actor)
+}
+
 // setStatus backs pause, resume and close. Pausing and resuming are shared with
 // operators; closing is the owner's alone, so the caller supplies the check it
 // has already run rather than this deciding for itself.
@@ -359,6 +383,7 @@ type updateQueueRequest struct {
 	ShowNamesToOperators  *bool   `json:"showNamesToOperators"`
 	HoldMinutes           *int    `json:"holdMinutes"`
 	SeatsFixed            *bool   `json:"seatsFixed"`
+	CustomersCanLeave     *bool   `json:"customersCanLeave"`
 	ServingOrder          *string `json:"servingOrder"`
 	PersonNoun            *string `json:"personNoun"`
 	PeopleNoun            *string `json:"peopleNoun"`
@@ -383,6 +408,7 @@ func (r updateQueueRequest) validate(capacityPresent bool, current queue.Queue) 
 		ShowNamesToOperators:  r.ShowNamesToOperators,
 		HoldMinutes:           r.HoldMinutes,
 		SeatsFixed:            r.SeatsFixed,
+		CustomersCanLeave:     r.CustomersCanLeave,
 	}
 
 	order := current.ServingOrder

@@ -11,7 +11,7 @@ import (
 	"github.com/vivianobiako/qless/api/internal/queue"
 )
 
-const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, call_phrase, numbering, reset_at, archived_at, created_at, updated_at`
+const queueColumns = `id, name, slug, description, average_service_minutes, max_capacity, status, next_number, show_names_to_operators, hold_minutes, pause_note, seats_fixed, serving_order, person_noun, people_noun, call_phrase, numbering, reset_at, archived_at, created_at, updated_at, customers_can_leave`
 
 func scanQueue(row pgx.Row) (queue.Queue, error) {
 	var q queue.Queue
@@ -21,7 +21,7 @@ func scanQueue(row pgx.Row) (queue.Queue, error) {
 		&q.AverageServiceMinutes, &q.MaxCapacity, &status, &q.NextNumber,
 		&q.ShowNamesToOperators, &q.HoldMinutes, &q.PauseNote, &q.SeatsFixed,
 		&order, &q.PersonNoun, &q.PeopleNoun, &phrase, &numbering, &q.ResetAt,
-		&q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt,
+		&q.ArchivedAt, &q.CreatedAt, &q.UpdatedAt, &q.CustomersCanLeave,
 	)
 	if err != nil {
 		return queue.Queue{}, err
@@ -173,6 +173,7 @@ type UpdateQueueParams struct {
 	ShowNamesToOperators  *bool
 	HoldMinutes           *int
 	SeatsFixed            *bool
+	CustomersCanLeave     *bool
 	ServingOrder          *queue.ServingOrder
 	PersonNoun            *string
 	PeopleNoun            *string
@@ -244,12 +245,13 @@ func (s *Store) UpdateQueue(ctx context.Context, queueID string, p UpdateQueuePa
 			     people_noun = COALESCE($12, people_noun),
 			     call_phrase = COALESCE($13, call_phrase),
 			     numbering = COALESCE($14, numbering),
+			     customers_can_leave = COALESCE($15, customers_can_leave),
 			     updated_at = now()
 			 WHERE id = $1
 			 RETURNING `+queueColumns,
 			queueID, p.Name, p.Description, p.AverageServiceMinutes,
 			p.MaxCapacitySet, p.MaxCapacity, p.ShowNamesToOperators, p.HoldMinutes, p.SeatsFixed,
-			order, p.PersonNoun, p.PeopleNoun, phrase, numbering,
+			order, p.PersonNoun, p.PeopleNoun, phrase, numbering, p.CustomersCanLeave,
 		))
 		if err := settingsViolation(err); err != nil {
 			if errors.Is(err, queue.ErrInvalidInput) {

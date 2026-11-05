@@ -1010,3 +1010,23 @@ could take.
 
 **Mode is set in settings, not when creating a queue.** The create form is
 unchanged; a queue starts in order and is switched once its places are set.
+
+## Turning off customer cancel
+
+**An owner can stop customers cancelling from their phone.** A per-queue
+setting, `customersCanLeave`, on by default, so every existing queue keeps its
+cancel button. Off, the pass shows "Need to leave the queue? Ask at the admin"
+where the button was, and the join page says so before anyone takes a number.
+
+**The API refuses, not just the page.** `POST /leave` answers 403
+`leave_disabled` when the setting is off, so a hidden button is not the only
+thing in the way. A customer whose dialog was open when the owner switched it
+off is told the same, and the pass redraws without the button.
+
+**Staff get Remove, whatever the setting.** Skip is for someone who did not
+turn up: with a hold time their number is kept and they can be called back.
+Remove is for someone who asked to leave: they end as LEFT at once, the same
+status a customer's own cancel gives, with the staff member recorded. That
+record is what tells the two apart: the phone of someone removed says "The
+admin removed you from the queue", not "You cancelled your place", and
+history shows who did it.
