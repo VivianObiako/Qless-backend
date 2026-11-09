@@ -55,7 +55,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.NewServer(store).WithPush(sender, cfg.WebOrigin()).Routes(cfg.AllowedOrigins...),
+		Handler:           api.NewServer(store).WithPush(sender, cfg.WebOrigin()).WithAdmin(cfg.AdminToken).Routes(cfg.AllowedOrigins...),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
