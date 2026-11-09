@@ -82,3 +82,38 @@ func TestOnlyOnePassClaimsARung(t *testing.T) {
 		t.Fatal("a stale release undid a later claim")
 	}
 }
+
+// A push address is kept only while its visit is live: once the customer
+// leaves or is served, the next pass over the queue removes it.
+func TestFinishedVisitsLoseTheirPushAddress(t *testing.T) {
+	store := newTestStore(t)
+	q := newTestQueue(t, store, nil)
+	ctx := context.Background()
+
+	for _, name := range []string{"leaver", "stayer"} {
+		join(t, store, q.ID, name)
+		if err := store.SavePushSubscription(ctx, q.ID, token.Hash(name+q.ID), push.Subscription{
+			Endpoint: "https://push.example/" + freshSecret(t), P256dh: "key", Auth: "auth",
+		}); err != nil {
+			t.Fatalf("subscribe %s: %v", name, err)
+		}
+	}
+	if _, err := store.Leave(ctx, q.ID, token.Hash("leaver"+q.ID)); err != nil {
+		t.Fatalf("leave: %v", err)
+	}
+
+	if err := store.ForgetFinishedPushSubscriptions(ctx, q.ID); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+
+	var left int
+	if err := store.Pool().QueryRow(ctx,
+		`SELECT count(*) FROM push_subscriptions p JOIN queue_entries e ON e.id = p.entry_id WHERE e.queue_id = $1`,
+		q.ID,
+	).Scan(&left); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if left != 1 {
+		t.Fatalf("%d push addresses left, want only the one still waiting", left)
+	}
+}
