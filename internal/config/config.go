@@ -19,6 +19,9 @@ type Config struct {
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string
+
+	// AdminToken opens GET /api/admin/stats. Empty keeps the route off.
+	AdminToken string
 }
 
 // WebOrigin is where a tapped notification lands: the first allowed origin,
@@ -44,6 +47,8 @@ func Load() (Config, error) {
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:    envOr("VAPID_SUBJECT", "mailto:hello@qless.app"),
+
+		AdminToken: os.Getenv("ADMIN_TOKEN"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is not set (copy .env.example to .env)")

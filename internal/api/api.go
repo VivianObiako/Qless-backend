@@ -37,6 +37,10 @@ type Server struct {
 	// Nil-safe: a server without push configured answers that it has none.
 	push      *push.Sender
 	webOrigin string
+
+	adminToken   string
+	adminLimiter *httpx.Limiter
+	startedAt    time.Time
 }
 
 func NewServer(store *storage.Store) *Server {
@@ -68,6 +72,9 @@ func NewServer(store *storage.Store) *Server {
 		// And a limiter alone only paces an attacker, because it refills. Twenty
 		// wrong codes from one address inside ten minutes closes it for fifteen.
 		redeemLockout: httpx.NewLockout(20, 10*time.Minute, 15*time.Minute),
+		// The admin key is long and random, so this only keeps a guesser slow.
+		adminLimiter: httpx.NewLimiter(10, 5),
+		startedAt:    time.Now(),
 	}
 }
 

@@ -25,6 +25,7 @@ func (s *Server) Routes(allowedOrigins ...string) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, healthResponse{Status: "ok"})
 	})
+	mux.HandleFunc("GET /api/admin/stats", s.adminStats)
 
 	// Identity. A code is redeemed once for a session token; the token is what
 	// every other route below reads. Neither says which queue — the server
