@@ -141,6 +141,9 @@ func (s *Server) notifyPush(queueID string) {
 		slog.Error("push: read state", "error", err, "queue", queueID)
 		return
 	}
+	if err := s.store.ForgetFinishedPushSubscriptions(ctx, queueID); err != nil {
+		slog.Error("push: forget finished", "error", err, "queue", queueID)
+	}
 	targets, err := s.store.PushTargets(ctx, queueID)
 	if err != nil {
 		slog.Error("push: list targets", "error", err, "queue", queueID)

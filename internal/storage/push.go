@@ -65,6 +65,21 @@ func (s *Store) DeletePushSubscriptionByID(ctx context.Context, id string) error
 	return nil
 }
 
+// ForgetFinishedPushSubscriptions drops the push address of every visit in
+// this queue that is over, so nothing outlives the wait it was given for.
+func (s *Store) ForgetFinishedPushSubscriptions(ctx context.Context, queueID string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM push_subscriptions p
+		  USING queue_entries e
+		  WHERE e.id = p.entry_id AND e.queue_id = $1 AND e.status NOT IN ('WAITING', 'SERVING')`,
+		queueID,
+	)
+	if err != nil {
+		return fmt.Errorf("forget finished push subscriptions: %w", err)
+	}
+	return nil
+}
+
 // PushTargets lists every subscribed phone still holding a place in this
 // queue. Finished entries drop out here as well as by cascade, so a late
 // frame never wakes a phone about a number that is over.
