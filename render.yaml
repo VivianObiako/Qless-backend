@@ -40,6 +40,10 @@ services:
       # notification, so they can reach you if the server misbehaves.
       - key: VAPID_SUBJECT
         sync: false
+      # Opens GET /api/admin/stats for the /admin page: a long random string
+      # (openssl rand -base64 32). Left unset, the route answers 404.
+      - key: ADMIN_TOKEN
+        sync: false
 
   # Staging: where a change is proven before it reaches real users. It deploys
   # from the `staging` branch rather than `main`, and it must never share a
@@ -69,4 +73,8 @@ services:
       - key: VAPID_PRIVATE_KEY
         sync: false
       - key: VAPID_SUBJECT
+        sync: false
+      # Opens GET /api/admin/stats for the /admin page: a long random string
+      # (openssl rand -base64 32). Left unset, the route answers 404.
+      - key: ADMIN_TOKEN
         sync: false
